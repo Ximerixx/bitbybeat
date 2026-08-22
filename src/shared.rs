@@ -33,6 +33,8 @@ pub struct Metrics {
 pub struct Shared {
     pub config: Mutex<Config>,
     pub metrics: Mutex<Metrics>,
+    /// Последний снимок OSC-каналов (compute-loop перезаписывает, OSC-поток читает).
+    pub osc_out: Mutex<Vec<(String, f32)>>,
     pub running: AtomicBool,
     pub restart_audio: AtomicBool,
 }
@@ -42,6 +44,7 @@ impl Shared {
         Arc::new(Self {
             config: Mutex::new(config),
             metrics: Mutex::new(Metrics::default()),
+            osc_out: Mutex::new(Vec::new()),
             running: AtomicBool::new(true),
             restart_audio: AtomicBool::new(false),
         })

@@ -6,7 +6,6 @@ use crate::config::{Config, Source};
 use crate::control::Controller;
 use crate::detect::{BeatDetector, CounterBank};
 use crate::dsp::{rms_power, BandProcessor, Spectrum};
-use crate::osc::OscSender;
 use crate::shared::Shared;
 use ringbuf::traits::{Consumer, Split};
 use ringbuf::HeapRb;
@@ -22,9 +21,6 @@ pub fn spawn(shared: Arc<Shared>) -> std::thread::JoinHandle<()> {
 }
 
 fn run(shared: Arc<Shared>) {
-    let dt = 1.0 / crate::config::CONTROL_RATE_HZ;
-    let tick = Duration::from_secs_f32(dt);
-
     let mut sample_rate = 48000.0f32;
     let cfg0 = shared.config.lock().unwrap().clone();
 
@@ -41,7 +37,6 @@ fn run(shared: Arc<Shared>) {
     let mut snare_counts = CounterBank::default();
     let mut controller = Controller::default();
     let mut spectrum = Spectrum::new(FFT_SIZE);
-    let mut osc: Option<OscSender> = OscSender::new(&cfg0.osc).ok();
 
     let mut frame: Vec<f32> = Vec::with_capacity(8192);
 
@@ -50,7 +45,6 @@ fn run(shared: Arc<Shared>) {
     let mut kick_env = 0.0f32;
     let mut snare_env = 0.0f32;
     let mut rythm_env = 0.0f32;
-    const ENV_DECAY: f32 = 0.86;
 
     while shared.running.load(Ordering::Relaxed) {
         let t0 = Instant::now();
@@ -64,6 +58,11 @@ fn run(shared: Arc<Shared>) {
         }
 
         let cfg: Config = shared.config.lock().unwrap().clone();
+
+        // Частота обсчёта — из конфига (можно менять на лету); dt влияет на сглаживание/lag/детекторы.
+        let rate = cfg.compute_rate_hz.clamp(30.0, 480.0);
+        let dt = 1.0 / rate;
+        let tick = Duration::from_secs_f32(dt);
 
         // синхронизировать число/дизайн полос при изменении конфига
         if bands.len() != cfg.bands.len() {
@@ -126,18 +125,21 @@ fn run(shared: Arc<Shared>) {
         let mut sd = cfg.detectors[1].clone(); sd.threshold = snare_thr;
         let rd = cfg.detectors[2].clone(); // rythm — ручной порог (0..1)
 
-        // нормировка flux пик-фолловером → устойчивая шкала 0..1 (onset)
-        flux_peak = (flux_peak * 0.999).max(spectrum.flux).max(1e-6);
+        // нормировка flux пик-фолловером → устойчивая шкала 0..1 (onset).
+        // Затухание привязано к dt (независимо от частоты обсчёта): tau ≈ 3 c.
+        let peak_decay = (-dt / 3.0).exp();
+        flux_peak = (flux_peak * peak_decay).max(spectrum.flux).max(1e-6);
         let flux_norm = (spectrum.flux / flux_peak).clamp(0.0, 1.0);
 
         let kick = kick_det.process(brms[0], &kd, dt);       // kick по low RMS
         let snare = snare_det.process(brms[2], &sd, dt);     // snare по high RMS
         let rythm = rythm_det.process(flux_norm, &rd, dt);   // rythm — onset по flux
 
-        // огибающие для ламп (импульсы плохо видны при 60 Гц)
-        kick_env = (kick_env * ENV_DECAY).max(kick.1);
-        snare_env = (snare_env * ENV_DECAY).max(snare.0.max(snare.1));
-        rythm_env = (rythm_env * ENV_DECAY).max(rythm.1);
+        // огибающие для ламп: вспышка → плавный спад, tau ≈ 0.12 c (независимо от частоты обсчёта)
+        let env_decay = (-dt / 0.12).exp();
+        kick_env = (kick_env * env_decay).max(kick.1);
+        snare_env = (snare_env * env_decay).max(snare.0.max(snare.1));
+        rythm_env = (rythm_env * env_decay).max(rythm.1);
 
         let (k4, k8, k16) = kick_counts.process(kick.1);
         let (s4, s8, s16) = snare_counts.process(snare.1);
@@ -166,12 +168,9 @@ fn run(shared: Arc<Shared>) {
         if cfg.dsp_rmspower {
             channels.push(("dsprms".into(), dsp_rms));
         }
-        if cfg.osc.enabled {
-            if osc.is_none() { osc = OscSender::new(&cfg.osc).ok(); }
-            if let Some(sender) = osc.as_ref() {
-                let _ = sender.send(&channels, cfg.osc.bundle);
-            }
-        }
+        let osc_channels = channels.len();
+        // Кладём последний снимок в буфер (перезапись). Отправку по своему таймеру делает osc-поток.
+        *shared.osc_out.lock().unwrap() = channels;
 
         // ── метрики ──
         {
@@ -188,7 +187,7 @@ fn run(shared: Arc<Shared>) {
             m.flux = spectrum.flux; m.dsp_rms = dsp_rms;
             let n = spectrum.mags.len().min(SPECTRUM_DRAW_BINS);
             m.spectrum = spectrum.mags[..n].to_vec();
-            m.osc_channels = channels.len();
+            m.osc_channels = osc_channels;
         }
 
         // ── ритм control-rate ──

@@ -6,7 +6,8 @@
 
 use serde::{Deserialize, Serialize};
 
-pub const CONTROL_RATE_HZ: f32 = 60.0;
+fn default_compute_rate() -> f32 { 120.0 }
+fn default_osc_rate() -> f32 { 60.0 }
 
 /// toggle + parameters (md_plans/10 R1/R3).
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -101,17 +102,42 @@ impl GainCfg {
 pub struct SigmoidCfg {
     pub enabled: bool,
     pub ceil: f32,
+    /// Общая крутизна (используется, когда `asymmetric = false`).
     pub k: f32,
     pub center: f32,
+    /// Асимметрия: раздельная крутизна левой/правой половины относительно `center`.
+    #[serde(default)]
+    pub asymmetric: bool,
+    /// Крутизна левой половины (x < center). При загрузке старых пресетов = `k`.
+    #[serde(default = "default_side_k")]
+    pub k_left: f32,
+    /// Крутизна правой половины (x > center).
+    #[serde(default = "default_side_k")]
+    pub k_right: f32,
 }
 impl SigmoidCfg {
     pub fn eval(&self, x: f32) -> f32 {
         if !self.enabled {
             return x; // R4 OFF → линейный выход маппера
         }
-        self.ceil / (1.0 + (-self.k * (x - self.center)).exp())
+        // Кусочно-логистическая, непрерывная в center (обе половины дают ceil/2 при x=center).
+        let k = if !self.asymmetric {
+            self.k
+        } else if x < self.center {
+            self.k_left
+        } else {
+            self.k_right
+        };
+        self.ceil / (1.0 + (-k * (x - self.center)).exp())
+    }
+
+    /// Полный конструктор (симметричный по умолчанию, половины = k).
+    pub fn new(enabled: bool, ceil: f32, k: f32, center: f32) -> Self {
+        Self { enabled, ceil, k, center, asymmetric: false, k_left: k, k_right: k }
     }
 }
+
+fn default_side_k() -> f32 { 3.0 }
 
 // lag config (stateful, no bypass)
 
@@ -200,9 +226,9 @@ impl Default for ControlCfg {
             kick_map: GainCfg::with_range(0.0, 3.92, -0.3, 0.0, 0.5),
             snare_map: GainCfg::with_range(0.5, 6.78, -0.2, 0.0, 0.09),
             rythm_map: GainCfg::with_range(1.8, 4.76, -0.8, 0.0, 6.0),
-            kick_sigmoid: SigmoidCfg { enabled: true, ceil: 0.7, k: 5.4, center: 0.3 },
-            snare_sigmoid: SigmoidCfg { enabled: true, ceil: 0.9, k: 2.1, center: 0.5 },
-            rythm_sigmoid: SigmoidCfg { enabled: false, ceil: 1.0, k: 3.0, center: 0.5 },
+            kick_sigmoid: SigmoidCfg::new(true, 0.7, 5.4, 0.3),
+            snare_sigmoid: SigmoidCfg::new(true, 0.9, 2.1, 0.5),
+            rythm_sigmoid: SigmoidCfg::new(false, 1.0, 3.0, 0.5),
         }
     }
 }
@@ -238,6 +264,12 @@ pub struct Config {
     pub detectors: Vec<DetectorCfg>,
     pub control: ControlCfg,
     pub osc: OscCfg,
+    /// Частота обсчёта DSP/детекторов, Гц (компьют-луп).
+    #[serde(default = "default_compute_rate")]
+    pub compute_rate_hz: f32,
+    /// Частота отправки OSC, Гц (отдельный таймер, читает последний снимок).
+    #[serde(default = "default_osc_rate")]
+    pub osc_rate_hz: f32,
 }
 
 impl Default for Config {
@@ -271,6 +303,8 @@ impl Default for Config {
             ],
             control: ControlCfg::default(),
             osc: OscCfg::default(),
+            compute_rate_hz: default_compute_rate(),
+            osc_rate_hz: default_osc_rate(),
         }
     }
 }

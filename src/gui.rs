@@ -128,10 +128,26 @@ fn sigmoid_params(ui: &mut egui::Ui, s: &mut SigmoidCfg) {
     ui.horizontal(|ui| {
         ui.add(egui::DragValue::new(&mut s.ceil).speed(0.01).prefix("ceil "))
             .on_hover_text("потолок: максимум выхода кривой");
-        ui.add(egui::DragValue::new(&mut s.k).speed(0.01).prefix("k "))
-            .on_hover_text("крутизна: больше k → резче переход");
-        ui.add(egui::DragValue::new(&mut s.center).speed(0.01).prefix("c "))
+        ui.add(egui::DragValue::new(&mut s.center).speed(0.05).prefix("c "))
             .on_hover_text("центр: значение входа, где кривая на половине высоты");
+        let a = ui.checkbox(&mut s.asymmetric, "асимм")
+            .on_hover_text("раздельная крутизна левой и правой половины относительно центра");
+        // при включении сеем половины из общей k — стартуем от текущей симметричной кривой
+        if a.changed() && s.asymmetric {
+            s.k_left = s.k;
+            s.k_right = s.k;
+        }
+    });
+    ui.horizontal(|ui| {
+        if s.asymmetric {
+            ui.add(egui::DragValue::new(&mut s.k_left).speed(0.01).prefix("◄k "))
+                .on_hover_text("крутизна левой половины (x < центра): круче → резче вход снизу");
+            ui.add(egui::DragValue::new(&mut s.k_right).speed(0.01).prefix("k► "))
+                .on_hover_text("крутизна правой половины (x > центра): круче → резче насыщение сверху");
+        } else {
+            ui.add(egui::DragValue::new(&mut s.k).speed(0.01).prefix("k "))
+                .on_hover_text("общая крутизна: больше → резче переход");
+        }
     });
 }
 
@@ -260,6 +276,13 @@ impl eframe::App for App {
             ui.checkbox(&mut cfg.dsp_rmspower, "RMS-power во входную DSP-ветвь (R2)")
                 .on_hover_text("опциональная нода RMS в ветви анализа (вставляется по ситуации)");
             gain_ui(ui, "DSP-гейн (math1)", &mut cfg.dsp_gain);
+
+            ui.separator();
+            ui.heading("Частоты");
+            ui.add(egui::Slider::new(&mut cfg.compute_rate_hz, 30.0..=480.0).text("обсчёт, Гц"))
+                .on_hover_text("частота DSP/детекторов; выше = меньше задержка отклика (CPU почти не растёт)");
+            ui.add(egui::Slider::new(&mut cfg.osc_rate_hz, 1.0..=480.0).text("OSC, Гц"))
+                .on_hover_text("частота отправки OSC; отдельный таймер, шлёт последний посчитанный снимок");
 
             ui.separator();
             ui.heading("OSC");

@@ -1,6 +1,9 @@
 //! bitbybeat — конфигурируемый аудиоанализатор → OSC.
 //! Порт TouchDesigner-прототипа `Analysis 2.2`. Документация тракта — в `md_plans/`.
 
+// В релизе на Windows прячем консольное окно (GUI-приложение). В debug — оставляем для логов.
+#![cfg_attr(all(not(debug_assertions), target_os = "windows"), windows_subsystem = "windows")]
+
 mod audio;
 mod config;
 mod control;
@@ -35,6 +38,7 @@ fn main() -> eframe::Result<()> {
     let shared = Shared::new(config);
 
     let engine_handle = engine::spawn(shared.clone());
+    let osc_handle = osc::spawn(shared.clone());
 
     let options = eframe::NativeOptions {
         viewport: eframe::egui::ViewportBuilder::default().with_inner_size([1200.0, 820.0]),
@@ -50,5 +54,6 @@ fn main() -> eframe::Result<()> {
     // остановить движок и дождаться
     shared.running.store(false, Ordering::Relaxed);
     let _ = engine_handle.join();
+    let _ = osc_handle.join();
     result
 }
