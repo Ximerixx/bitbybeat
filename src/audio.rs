@@ -55,7 +55,8 @@ fn dev_name(d: &cpal::Device) -> String {
     d.description().map(|desc| desc.name().to_string()).unwrap_or_else(|_| "?".into())
 }
 
-/// Число входных каналов устройства (по default-конфигу — то, что реально откроем).
+/// Реальное число входных каналов устройства (по default-конфигу — то, что откроем).
+/// NB: `supported_input_configs()` у ALSA врёт (рекламирует до 64), поэтому не используем.
 fn dev_channels(d: &cpal::Device) -> u16 {
     d.default_input_config().map(|c| c.channels()).unwrap_or(0)
 }
