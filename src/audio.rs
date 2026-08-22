@@ -61,6 +61,8 @@ pub fn list_pulse_sources() -> Vec<PulseSource> {
 }
 
 /// Бэкенд захвата: либо cpal-поток (железо), либо процесс `parec` (Pulse-источник/monitor).
+/// Держится живым ради RAII (остановка потока/процесса при drop), напрямую не читается.
+#[allow(dead_code)]
 enum Backend {
     Cpal(cpal::Stream),
     Pulse(PulseCapture),
