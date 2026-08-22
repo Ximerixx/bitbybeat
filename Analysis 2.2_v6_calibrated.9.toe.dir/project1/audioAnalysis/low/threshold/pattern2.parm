@@ -1,0 +1,5 @@
+?
+wavetype 0 ramp
+length 0 400
+autoexportroot 17 "" me.parent()
+?

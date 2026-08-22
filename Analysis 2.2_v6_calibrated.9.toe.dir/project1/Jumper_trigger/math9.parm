@@ -1,0 +1,4 @@
+?
+chopop 0 add
+gain 17 1 op('math7')['Torange32']
+?

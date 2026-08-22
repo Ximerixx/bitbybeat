@@ -1,0 +1,8 @@
+?
+w 49 400 "[(parent().par.Borderlow-8), parent().width][ipar.Slider.Flip]"
+h 49 300 "[parent().height, (parent().par.Borderlow-8)][ipar.Slider.Flip]"
+display 49 on parent().par.Labellocate=='left'
+enable 0 off
+topsmoothness 0 mipmap
+borderover 0 off
+?

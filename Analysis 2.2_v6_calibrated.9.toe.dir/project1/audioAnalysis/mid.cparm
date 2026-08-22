@@ -1,0 +1,10 @@
+?
+pages 1 Control
+772804865 Threshold Threshold 1 1 0 0 1 1 1 2 0 "" "" Control 2
+772804865 Gain Gain 1 1 0 0 1 1 1 2 0 "" "" Control 3
+772804865 Add Add 1 1 0 0 1 1 1 2 0 "" "" Control 4
+772804865 Smooth Smooth 1 1 0 0 1 1 1 2 0 "" "" Control 5
+772804865 Output Output 1 1 0 0 1 1 1 2 0 "" "" Control 6
+772804867 Active Active 1 1 0 0 1 1 1 2 0 "" "" Control 1
+772804868 Name Name 1 1 0 0 1 1 1 2 0 "" "" Control 0
+?

@@ -1,0 +1,6 @@
+?
+lag1 16 0 op('lag3')['kick']
+lag2 17 0.2 op('lag4')['kick']
+snap 0 off
+timeslice 0 on
+?

@@ -1,0 +1,10 @@
+?
+tops 49 "" "'transformy' if (parent().par.Interiortop==None) else parent().par.Interiortop"
+selectinput 17 off int((parent().par.Interiortop==None))
+operand 0 over
+size 0 input1
+px 0 0
+py 0 0
+legacyxform 0 on
+inputfiltertype 0 mipmap
+?

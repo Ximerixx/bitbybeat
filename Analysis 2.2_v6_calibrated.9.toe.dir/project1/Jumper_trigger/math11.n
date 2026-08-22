@@ -1,0 +1,9 @@
+CHOP:math
+tile 2350 2329 74 43
+flags =  viewer 1 parlanguage 0
+inputs
+{
+0 	math10
+}
+color 0.5 0.2 0.05 
+end

@@ -1,0 +1,6 @@
+?
+lag1 0 0.02
+lag2 17 0.2 op('par1')['Defaultlag']
+snap 0 off
+timeslice 0 on
+?

@@ -1,0 +1,6 @@
+?
+allowstart 0 off
+allowend 0 off
+nopeakvalue 0 1
+autoexportroot 17 "" me.parent()
+?

@@ -1,0 +1,5 @@
+?
+type 561 off op('datto1')['Mode'] parent().par.Type
+min 17 -1 op('math2').par.torange1
+max 17 1 op('math2').par.torange2
+?

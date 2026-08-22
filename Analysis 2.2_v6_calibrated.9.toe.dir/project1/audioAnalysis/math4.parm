@@ -1,0 +1,6 @@
+?
+pageindex 0 1
+preoff 49 0 -parent().par.Midthresh
+gain 49 100 parent().par.Midgain
+autoexportroot 17 "" me.parent()
+?

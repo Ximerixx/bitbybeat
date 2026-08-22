@@ -1,0 +1,3 @@
+?
+expr0expr 49 0.768 0.7/(1+math.exp(-5.4*(me.inputVal-0.3)))
+?

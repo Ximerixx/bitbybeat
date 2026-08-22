@@ -1,0 +1,13 @@
+?
+pageindex 0 2
+dat 0 eval1
+color1 0 0
+color2 0 0
+color3 0 0
+color4 0 1
+type 0 radial
+phase 48 -0.25 parent().par.Arcanglelow/360
+extendright 0 repeat
+resolutionw 49 256 op('text').width
+resolutionh 49 256 op('text').height
+?

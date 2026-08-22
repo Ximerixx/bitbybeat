@@ -1,0 +1,9 @@
+TOP:null
+tile 1427 252 107 97
+flags =  viewer 1 parlanguage 0
+inputs
+{
+0 	interior
+}
+color 0.56 0.56 0.56 
+end

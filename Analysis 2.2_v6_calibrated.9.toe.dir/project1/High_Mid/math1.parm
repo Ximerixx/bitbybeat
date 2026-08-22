@@ -1,0 +1,5 @@
+?
+pageindex 0 1
+chopop 0 mul
+gain 547 1 parent().par.Midgain
+?

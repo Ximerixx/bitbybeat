@@ -1,0 +1,9 @@
+TOP:lookup
+tile 444 538 113 105
+flags =  viewer 1 parlanguage 0
+inputs
+{
+0 	ramp3
+}
+color 0.55 0.55 0.55 
+end

@@ -1,0 +1,17 @@
+?
+pageindex 0 2
+sizex 49 41 parent().width-2
+sizey 49 20.5 parent().height-2
+sizeunit 32 pixels
+fillcolorr 0 0.23
+fillcolorg 0 0.23
+fillcolorb 0 0.23
+fillalpha 49 1 parent.binary.par.Behavior=='pulse'
+cornerradius 0 0.33
+cornerradiusunit 0 fraction
+softness 0 0.05
+softnessunit 0 fraction
+outputresolution 0 parpanel
+resolutionw 2 48
+resolutionh 2 25
+?

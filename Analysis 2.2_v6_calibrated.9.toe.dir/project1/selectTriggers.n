@@ -1,0 +1,9 @@
+CHOP:select
+tile 1500 -350 130 90
+flags =  parlanguage 0
+inputs
+{
+0 	Count_Analysis/out1
+}
+color 0.67 0.67 0.67 
+end

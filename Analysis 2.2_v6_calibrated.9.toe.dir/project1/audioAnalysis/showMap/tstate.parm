@@ -1,0 +1,4 @@
+?
+expr0expr 49 0 "me.inputVal + 2 * parent().panel.rollover"
+autoexportroot 17 "" me.parent()
+?

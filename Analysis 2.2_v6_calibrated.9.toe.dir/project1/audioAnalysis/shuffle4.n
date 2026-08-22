@@ -1,0 +1,10 @@
+CHOP:shuffle
+tile 1655 -575 200 151
+flags =  viewer 1 parlanguage 0
+inputs
+{
+0 	shuffle3
+}
+color 0.55 0.55 0.55 
+view -1 5 -1 1 0.034375 -1.5 1.5 4 3 2456 10 0 1 *
+end

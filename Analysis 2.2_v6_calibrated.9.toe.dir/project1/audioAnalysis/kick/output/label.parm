@@ -1,0 +1,34 @@
+?
+pageindex 0 1
+text 49 Derivative "parent().par.Label if parent().par.Labellocate!='none' else ''"
+legacyfontselection 0 on
+scaletofit 0 onlyshrink
+fontsize 34 20
+fontcolorr 32 0.5
+fontcolorg 49 0.5 me.par.fontcolorr
+fontcolorb 49 0.5 me.par.fontcolorr
+textoffsetx 2 0
+textoffsety 0 0
+textpaddingl 0 4
+textpaddingr 0 4
+textpaddingb 0 3
+textpaddingt 0 3
+alignx 2 center
+aligny 2 center
+x 2 0
+w 2 400
+h 2 300
+layer 0 1
+hmode 0 fill
+vmode 0 fill
+display 49 on "parent().par.Labellocate != 'none'"
+clickthrough 0 on
+borderar 0 0.17
+borderag 0 0.17
+borderab 0 0.17
+bottomborder 49 bordera "parent().par.Border > 0"
+bottomborderi 49 bordera "parent().par.Border > 1"
+topborder 49 bordera "parent().par.Border > 0"
+topborderi 49 bordera "parent().par.Border > 1"
+borderover 0 off
+?

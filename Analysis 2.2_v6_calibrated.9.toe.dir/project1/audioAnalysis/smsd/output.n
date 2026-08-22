@@ -1,0 +1,10 @@
+COMP:slider
+tile 200 72 195 84
+flags =  viewer 1 render on parlanguage 0
+exports
+{
+./script_export
+}
+
+color 0.56 0.56 0.56 
+end

@@ -1,0 +1,9 @@
+CHOP:express
+tile 1175 -276 248 104
+flags =  viewer 1 parlanguage 0
+inputs
+{
+0 	snareControlThreshold_math
+}
+color 0.67 0.67 0.67 
+end

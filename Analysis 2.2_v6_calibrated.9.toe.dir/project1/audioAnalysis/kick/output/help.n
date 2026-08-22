@@ -1,0 +1,5 @@
+DAT:eval
+tile 56 124 149 72
+flags =  current on viewer 1 parlanguage 0
+color 0.55 0.55 0.55 
+end

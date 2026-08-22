@@ -1,0 +1,10 @@
+COMP:text
+tile 330 155 140 71
+flags =  viewer 1 parlanguage 0
+exports
+{
+script_export
+}
+
+color 0.55 0.55 0.55 
+end

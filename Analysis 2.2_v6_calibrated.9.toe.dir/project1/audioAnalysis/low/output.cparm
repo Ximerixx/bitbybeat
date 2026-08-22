@@ -1,0 +1,30 @@
+?
+pages 3 Config Look2 Extra
+772804868 Label Label 1 1 -3.40282e+38 0 1 3.40282e+38 1 2 0 "" "" Config 0
+772804868 Help Help 1 1 -3.40282e+38 0 1 3.40282e+38 1 2 0 "" "" Config 1
+772804865 Default1 Default 1 1 -3.40282e+38 0 1 3.40282e+38 1 2 0 "" "" Config 3
+772804868 Notches "Notches [list]" 1 1 -3.40282e+38 0 1 3.40282e+38 1 2 0 [.5] "" Look2 0
+772804879 Labelalign "Label Align" 1 1 -3.40282e+38 0 1 3.40282e+38 1 2 0 "" "" Look2 4097 3 left Left center Center right Right 2
+772804867 Fontauto "Font Auto-size" 1 1 -3.40282e+38 0 1 3.40282e+38 1 2 1 "" "" Look2 3
+772935937 Fontsize "Font Size" 1 1 -3.40282e+38 1 1 3.40282e+38 40 2 12 "" "" Look2 4 "not me.par.Fontauto"
+772804879 Horizvert "Horizontal Vertical" 1 1 -3.40282e+38 0 1 3.40282e+38 1 2 0 "" "" Look2 4097 3 auto Auto horizontal Horizontal vertical Vertical 9
+772804874 Interiortop "Interior TOP" 1 1 -3.40282e+38 0 1 3.40282e+38 1 2 0 "" "" Look2 10
+772804877 Extend "Extend COMP" 1 1 -3.40282e+38 0 1 3.40282e+38 1 2 0 "" "" Extra 2
+772804865 Value1 Value 1 1 -3.40282e+38 0 1 3.40282e+38 1 2 0 "" "" Config 2
+772804865 Handlesize "Handle Size" 1 1 -3.40282e+38 1 1 3.40282e+38 10 2 3 "" "" Look2 7
+772804879 Labellocate "Label Location" 1 1 -3.40282e+38 0 1 3.40282e+38 1 2 0 zone "" Look2 4097 3 none None zone "Slider Zone" left Left 1
+772804865 Borderlow "Border Low" 1 1 0 0 1 200 20 2 60 "" "" Look2 5
+772804865 Borderhigh "Border High" 1 1 0 0 1 1 20 2 5 "" "" Look2 6
+772804879 Numfield "Number Field" 1 1 0 0 1 1 1 2 0 "" "" Look2 4097 3 off Off view View edit Edit 12
+772935938 Decimals "Decimal Places" 1 1 0 0 1 1 5 2 2 "" "" Look2 13 "me.par.Numfield != 'off'"
+772804867 Integer Integer 1 1 0 0 1 1 1 2 0 "" "" Config 8
+772804868 Name1 "Channel Name" 1 1 0 0 1 1 1 2 0 v1 "" Config 9
+772804865 Rangelow1 "Range Low" 1 1 -3.40282e+38 0 1 3.40282e+38 1 2 0 "" "" Config 4
+772804865 Rangehigh1 "Range High" 1 1 -3.40282e+38 0 1 3.40282e+38 1 2 1 "" "" Config 5
+772804867 Clamplow1 "Clamp Low" 1 1 0 0 1 1 1 2 1 "" "" Config 6
+772804867 Clamphigh1 "Clamp High" 1 1 0 0 1 1 1 2 1 "" "" Config 7
+772809729 Bgcolor "Back Color" 1 1 0 0 1 1 1 1 0 0 1 1 1 1 0 0 1 1 1 1 0 0 1 1 1 2 0.1 "" "" 2 0.1 "" "" 2 0.1 "" "" 2 1 "" "" Look2 11
+772804867 Showoffset "Show Default Offset" 1 1 0 0 1 1 1 2 0 "" "" Look2 8
+772804867 Mappable Mappable 1 1 0 0 1 1 1 2 1 "" "" Extra 1
+772804867 Push1 "Push Value to Source" 1 1 0 0 1 1 1 2 0 "" "" Extra 0
+?

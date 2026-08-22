@@ -1,0 +1,11 @@
+CHOP:merge
+tile 591 574 130 90
+flags =  viewer 1 parlanguage 0
+inputs
+{
+0 	audiodyna1
+1 	audiodyna1
+}
+color 0.55 0.55 0.55 
+view -1 5 -1 1 0.034375 -1.5 1.5 4 3 10648 20 0 1 *
+end

@@ -1,0 +1,11 @@
+COMP:container
+v 35.4946 295.709 0.8886
+tile 3252 695 457 150
+flags =  viewer 1 parlanguage 0
+exports
+{
+low_
+}
+
+color 0.55 0.55 0.55 
+end

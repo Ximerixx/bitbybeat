@@ -1,0 +1,10 @@
+CHOP:shuffle
+tile 1275 -975 324 612
+flags =  viewer 1 parlanguage 0
+inputs
+{
+0 	audiospecpt3
+}
+color 0.55 0.55 0.55 
+view -1 5 -1 1 0.587596 -1.5 1.5 4 3 10648 20 0 1 *
+end

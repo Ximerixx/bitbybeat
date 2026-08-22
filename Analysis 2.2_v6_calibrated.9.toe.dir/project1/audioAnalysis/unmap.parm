@@ -1,0 +1,31 @@
+?
+pageindex 0 1
+buttontype 2 momentary
+scaletofit 0 onlyshrink
+y 0 27
+w 0 45
+h 0 30
+leftanchor 0 1
+horigin 0 1
+display 17 on parent().par.Galmap
+bgcolorr 273 0 me.par.Bgcolorr
+bgcolorg 273 0 me.par.Bgcolorg
+bgcolorb 273 0 me.par.Bgcolorb
+bgalpha 273 0 me.par.Bgcolora
+top 256 ./icon
+topfill 256 off
+topsmoothness 0 mipmap
+borderover 0 off
+crop 0 on
+parentshortcut 0 binary
+iop0shortcut 256 Binary
+iop0op 256 ./iparBinary
+clone 17 "" "'' if op('/gal/binary')==None  else '/gal/binary'"
+Label 67108928 Un-Map
+Behavior 67108928 pulse
+Fontsize 67109056 12
+Texton 67108928 Unmap
+Textoff 67108928 Unmap
+Mappable 67108928 off
+Push1 67109056 off
+?

@@ -1,0 +1,7 @@
+?
+pageindex 0 2
+callbacks 0 script4_callbacks
+exportmethod 0 datname
+autoexportroot 17 "" me.parent()
+Randomize 67109443 0 parent().par.Generate
+?

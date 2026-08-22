@@ -1,0 +1,8 @@
+?
+units 0 frequency
+cutofflog 0 2.17609
+cutofffrequency 0 150
+rolloff 0 20
+timeslice 0 on
+autoexportroot 17 "" me.parent()
+?

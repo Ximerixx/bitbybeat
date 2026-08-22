@@ -1,0 +1,13 @@
+?
+x 49 0 "[(op('math')['v1'] - parent().par.Handlesize/2), 2][ipar.Slider.Flip]"
+y 49 2 "[2, (op('math')['v1'] - parent().par.Handlesize/2)][ipar.Slider.Flip]"
+w 49 400 "[parent().par.Handlesize, parent().width-4][ipar.Slider.Flip]"
+h 49 300 "[parent().height-4, parent().par.Handlesize][ipar.Slider.Flip]"
+layer 0 2
+clickthrough 0 on
+bgcolorr 0 0.7
+bgcolorg 0 0.7
+bgcolorb 0 0.7
+bgalpha 0 0.7
+borderover 0 off
+?

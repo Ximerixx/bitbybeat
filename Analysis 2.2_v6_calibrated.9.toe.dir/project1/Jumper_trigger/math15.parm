@@ -1,0 +1,5 @@
+?
+pageindex 0 1
+chopop 0 add
+gain 49 1 op('math7')['Torange32']/2
+?

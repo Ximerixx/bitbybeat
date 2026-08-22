@@ -1,0 +1,14 @@
+?
+pageindex 0 2
+dat 17 'ramp_keys' 'ramp_keys'
+color1 0 0.17
+color2 0 0.17
+color3 0 0.17
+color4 0 1
+interpnotches 0 step
+resolutionw 0 1000
+resolutionh 0 1
+outputaspect 0 custom
+aspect1 0 8
+aspect2 0 1
+?

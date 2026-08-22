@@ -1,0 +1,12 @@
+CHOP:merge
+tile 625 -1500 162 64
+flags =  viewer 1 parlanguage 0
+inputs
+{
+0 	rename13
+1 	rename14
+2 	select2
+3 	select3
+}
+color 0.55 0.55 0.55 
+end

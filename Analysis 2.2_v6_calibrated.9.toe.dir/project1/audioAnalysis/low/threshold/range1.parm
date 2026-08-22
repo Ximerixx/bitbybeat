@@ -1,0 +1,7 @@
+?
+pageindex 0 2
+fromrange1 49 0 parent().par.Rangelow1
+fromrange2 49 1 parent().par.Rangehigh1
+autoexportroot 0 ""
+exporttable 0 math_export1
+?

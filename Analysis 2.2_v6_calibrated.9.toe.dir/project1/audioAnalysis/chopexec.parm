@@ -1,0 +1,7 @@
+?
+pageindex 0 2
+active 49 on parent().par.Galmap
+fromop 16 constant8 me.parent()
+chop 0 par2
+defaultreadencoding 0 cp1252
+?

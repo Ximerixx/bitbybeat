@@ -1,0 +1,30 @@
+?
+pageindex 0 1
+text 49 Derivative "parent().par.Label if parent().par.Labellocate!='none' else ''"
+legacyfontselection 0 on
+scaletofit 0 onlyshrink
+fontsize 2 20
+fontcolorr 0 0.5
+fontcolorg 0 0.5
+fontcolorb 0 0.5
+textoffsetx 2 0
+textoffsety 0 0
+textoffsetunits 0 fract
+textpaddingl 0 4
+textpaddingr 0 4
+textpaddingb 0 4
+textpaddingt 0 4
+alignx 2 center
+layer 0 3
+hmode 0 fill
+vmode 0 fill
+clickthrough 0 on
+borderar 0 0.17
+borderag 0 0.17
+borderab 0 0.17
+bottomborder 0 bordera
+bottomborderi 0 bordera
+topborder 0 bordera
+topborderi 0 bordera
+borderover 0 off
+?

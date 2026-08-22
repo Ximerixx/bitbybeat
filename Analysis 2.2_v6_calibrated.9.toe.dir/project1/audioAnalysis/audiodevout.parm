@@ -1,0 +1,6 @@
+?
+active 547 on parent().par.Audioout
+device 0 ﻿{0.0.0.00000000}.{96baecef-64ce-4f9e-9ed6-7b1e1f54a6c8}||Наушники_(FiiO_KA3)||1
+volume 515 1 parent.AudioAnalysis.par.Listenvolume
+timeslice 0 on
+?

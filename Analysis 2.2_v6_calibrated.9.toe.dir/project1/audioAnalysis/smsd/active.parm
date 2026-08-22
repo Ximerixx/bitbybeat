@@ -1,0 +1,41 @@
+?
+pageindex 0 1
+buttontype 258 momentary
+scaletofit 0 onlyshrink
+w 0 27
+h 0 25
+vmode 0 anchors
+bottomanchor 0 0.2
+topanchor 0 0.8
+bgcolorr 273 0 me.par.Bgcolorr
+bgcolorg 273 0 me.par.Bgcolorg
+bgcolorb 273 0 me.par.Bgcolorb
+bgalpha 273 0 me.par.Bgcolora
+top 256 ./icon
+topfill 256 off
+topsmoothness 0 mipmap
+borderar 0 0.45
+borderag 0 0.45
+borderab 0 0.45
+borderaalpha 49 1 me.panel.rollover
+leftborder 0 bordera
+rightborder 0 bordera
+bottomborder 0 bordera
+topborder 0 bordera
+crop 256 on
+ext0object 256 ""
+parentshortcut 256 binary
+iop0shortcut 256 Binary
+iop0op 256 ./iparBinary
+clone 273 "" "'' if op('/gal/binary')==None  else '/gal/binary'"
+Value1 67109475 1 parent().par.Active
+Behavior 67108928 toggledown
+Labelwidth 67108928 0
+Labelalign 67108960 center
+Fontsize 67109056 12
+Indicator 67108928 icon
+Texton 67108928 On
+Textoff 67108928 Off
+Mappable 67108928 off
+Push1 67109056 off
+?

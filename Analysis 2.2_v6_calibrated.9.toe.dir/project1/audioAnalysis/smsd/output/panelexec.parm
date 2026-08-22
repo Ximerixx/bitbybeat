@@ -1,0 +1,8 @@
+?
+fromop 17 "" me.parent()
+panels 16 .. me.parent()
+panelvalue 2 u
+offtoon 0 off
+valuechange 0 on
+defaultreadencoding 0 cp1252
+?

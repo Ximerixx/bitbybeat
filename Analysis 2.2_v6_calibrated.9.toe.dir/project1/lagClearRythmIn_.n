@@ -1,0 +1,10 @@
+CHOP:lag
+tile -50 -200 160 85
+flags =  parlanguage 0
+inputs
+{
+0 	math2
+}
+color 0.67 0.67 0.67 
+view -1 5 -1 1 0.034375 -1.5 1.5 4 3 2456 10 0 1 *
+end

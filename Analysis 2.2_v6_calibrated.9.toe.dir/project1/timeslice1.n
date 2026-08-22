@@ -1,0 +1,9 @@
+CHOP:timeslice
+tile 1725 -700 197 90
+flags =  parlanguage 0
+inputs
+{
+0 	OSCOutMerge
+}
+color 0.67 0.67 0.67 
+end

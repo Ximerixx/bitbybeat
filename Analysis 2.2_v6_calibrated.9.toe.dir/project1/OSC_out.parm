@@ -1,0 +1,10 @@
+?
+port 0 7700
+maxsize 0 34
+format 0 sample
+sendrate 0 off
+maxbytes 0 24394
+timeslice 0 on
+exportmethod 0 autoname
+autoexportroot 16 "" parent()
+?

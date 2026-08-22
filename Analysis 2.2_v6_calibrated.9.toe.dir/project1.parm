@@ -1,0 +1,17 @@
+?
+w 0 600
+h 0 1052
+bottomanchor 0 0.223
+vfillweight 0 0
+sizefromwindow 0 on
+cursor 0 pointer
+resizecomp 16 /project1/AudioAnalysi me
+repocomp 16 . .
+top 0 ./out1
+topfill 0 horizontal
+topsmoothness 0 usetop
+borderover 0 off
+align 0 horizrl
+ext0object 0 ./project1/
+parentshortcut 0 Project
+?

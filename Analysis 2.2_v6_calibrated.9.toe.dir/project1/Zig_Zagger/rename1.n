@@ -1,0 +1,9 @@
+CHOP:rename
+tile 2900 -925 130 90
+flags =  current on viewer 1 parlanguage 0
+inputs
+{
+0 	limit1
+}
+color 0.55 0.55 0.55 
+end

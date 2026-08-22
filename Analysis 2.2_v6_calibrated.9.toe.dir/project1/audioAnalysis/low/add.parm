@@ -1,0 +1,36 @@
+?
+pageindex 0 8
+slidertype 2 slideruv
+clampul 0 off
+clampuh 0 off
+clampvl 0 off
+clampvh 0 off
+w 0 45
+vmode 0 fill
+bottomanchor 0 0.5
+vorigin 0 0.5
+alignorder 0 3
+bgcolorr 273 0 me.par.Bgcolorr
+bgcolorg 273 0 me.par.Bgcolorg
+bgcolorb 273 0 me.par.Bgcolorb
+bgalpha 273 0 me.par.Bgcolora
+top 256 ./icon
+topsmoothness 0 mipmap
+borderover 0 off
+crop 0 on
+parentshortcut 0 sliderxy
+clone 49 "" "'' if op('/gal/knob')==None  else '/gal/knob'"
+Label 67108928 Add
+Value1 67109475 -0.00787389 parent().par.Add
+Fontauto 67108928 off
+Fontsize 67108928 10
+Interactiontype 67108928 relativev
+Arcdiameter 67108928 27
+Arcthickness 67108928 2
+Labeloffset 67108928 -1
+Arcoffset 67108928 -7
+Numoffset 67108928 -3.4
+Rangelow1 67108928 -1
+Mappable 67108928 off
+Push1 67109056 off
+?

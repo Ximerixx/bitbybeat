@@ -1,0 +1,9 @@
+CHOP:limit
+tile 2650 -925 135 90
+flags =  viewer 1 parlanguage 0
+inputs
+{
+0 	speed1
+}
+color 0.55 0.55 0.55 
+end

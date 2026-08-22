@@ -1,0 +1,48 @@
+?
+pages 4 Controls "Analysis Data" Neutone About
+772804865 Lowthresh "Low Threshold" 1 3 0 0 1 0.6 0.6 2 0.2 "" "" Controls 3
+772804865 Lowgain "Low Gain" 1 3 0 0 1 4 7 2 2 "" "" Controls 4
+772804865 Highthresh "High Threshold" 1 3 0 0 1 0.6 0.6 2 0.2 "" "" Controls 13
+772804865 Highgain "High Gain" 1 3 0 0 1 4 7 2 4 "" "" Controls 14
+772804865 Lowsmooth "Low Smooth" 1 1 0 0 1 1 1 2 0.1 "" "" Controls 6
+772804865 Highsmooth "High Smooth" 1 1 0 0 1 1 1 2 0.1 "" "" Controls 16
+772804865 Low Low 1 1 0 0 1 1 1 2 0 "" "" "Analysis Data" 0
+772804865 Mid Mid 1 1 0 0 1 1 1 2 0 "" "" "Analysis Data" 1
+772804865 High High 1 1 0 0 1 1 1 2 0 "" "" "Analysis Data" 2
+772804865 Kickthresh "Kick Threshold" 1 1 0 0 1 0.6 0.6 2 0.2 "" "" Controls 18
+772804865 Kickdetection "Kick detection" 1 1 0 0 1 1 1 2 0 "" "" "Analysis Data" 6
+772804865 Snarethresh "Snare Threshold" 1 1 0 0 1 0.6 0.6 2 0.2 "" "" Controls 20
+772804865 Snaredetection "Snare detection" 1 1 0 0 1 1 1 2 0 "" "" "Analysis Data" 7
+772804865 Rythmthresh "Rythm Threshold" 1 1 10 10 1 90 90 2 66 "" "" Controls 22
+772804865 Rythm Rythm 1 1 0 0 1 1 1 2 0 "" "" "Analysis Data" 8
+772804865 Spectralcentroid "spectral centroid" 1 1 0 0 1 1 1 2 0 "" "" "Analysis Data" 3
+772804865 Fmp "fast moving partials density1" 1 3 0 0 3 1 1 2 0 "" "" "Analysis Data" 5
+772804865 Smp "slow moving partials density" 1 3 0 0 3 1 1 2 0 "" "" "Analysis Data" 4
+772804865 Midthresh "Mid Threshold" 1 3 0 0 1 0.6 0.6 2 0.1 "" "" Controls 8
+772804865 Midgain "Mid Gain" 1 3 0 0 1 4 7 2 4 "" "" Controls 9
+772804865 Midsmooth "Mid Smooth" 1 3 0 0 1 1 1 2 0.1 "" "" Controls 11
+772804865 Lowadd "Low Add" 1 1 -1 -1 1 1 1 2 0 "" "" Controls 5
+772804865 Midadd "Mid Add" 1 1 -1 -1 1 1 1 2 0 "" "" Controls 10
+772804865 Highadd "High Add" 1 1 -1 -1 1 1 1 2 0 "" "" Controls 15
+772804868 Version Version 1 1 0 0 1 1 1 2 0 "" "" About 1
+-1374678781 Galmap "Enable Mapper" 1 1 0 0 1 1 1 2 0 "" "" Controls 26
+-1374678779 Help Help 1 1 0 0 1 1 1 2 0 0 "" About 0
+-1374678781 Lowactive "Low Active" 1 1 0 0 1 1 1 2 0 "" "" Controls 2
+-1374678781 Midactive "Mid Active" 1 1 0 0 1 1 1 2 0 "" "" Controls 7
+-1374678781 Highactive "High Active" 1 1 0 0 1 1 1 2 0 "" "" Controls 12
+-1374678781 Kickactive "Kick Active" 1 1 0 0 1 1 1 2 0 "" "" Controls 17
+-1374678781 Snareactive "Snare Active" 1 1 0 0 1 1 1 2 0 "" "" Controls 19
+-1374678781 Rythmactive "Rythm Active" 1 1 0 0 1 1 1 2 0 "" "" Controls 21
+772804868 Toxsavebuild ".tox Save Build" 1 1 0 0 1 1 1 2 0 "" "" About 2
+772804867 Neutoneactive "Neutone Active" 1 1 0 0 1 1 1 2 0 "" "" Neutone 1
+772804868 Neutonenotice Pre-Install 1 1 0 0 1 1 1 2 0 "See inside to install Nutone VST first" "" Neutone 0
+-1374547711 Neutonebass "Neutone Bass" 1 3 0 0 1 1 1 2 0 "" "" Neutone 2 me.par.Neutoneactive
+772935937 Neutonedrums "Neutone Drums" 1 3 0 0 1 1 1 2 1 "" "" Neutone 3 me.par.Neutoneactive
+772935937 Neutonevocals "Neutone Vocals" 1 3 0 0 1 1 1 2 0 "" "" Neutone 4 me.par.Neutoneactive
+772935937 Neutoneother "Neutone Other" 1 3 0 0 1 1 1 2 0 "" "" Neutone 5 me.par.Neutoneactive
+-1374678781 Audioout "Send Audio to Default Out" 1 1 0 0 1 1 1 2 0 "" "" Controls 0
+772804865 Listenvolume "Audio Listen Volume" 1 3 0 0 1 1 1 2 0.5 "" "" Controls 1
+-1374678781 Ssdactive "Slow Spect Density Active" 1 1 0 0 1 1 1 2 0 "" "" Controls 23
+772804867 Fsdactive "Fast Spect Density Active" 1 1 0 0 1 1 1 2 0 "" "" Controls 24
+772804867 Scactive "Spectral Centroid Active" 1 1 0 0 1 1 1 2 0 "" "" Controls 25
+?

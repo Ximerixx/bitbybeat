@@ -1,0 +1,5 @@
+?
+pageindex 0 1
+preoff 17 0 op('math1')['low']
+gain 515 1 parent().par.Gain2
+?

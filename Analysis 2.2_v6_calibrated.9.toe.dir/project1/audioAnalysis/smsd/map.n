@@ -1,0 +1,10 @@
+COMP:button
+tile 440 52 160 137
+flags =  current on viewer 1 render on cloneImmune on parlanguage 0
+exports
+{
+./script_export
+}
+
+color 0.56 0.56 0.56 
+end

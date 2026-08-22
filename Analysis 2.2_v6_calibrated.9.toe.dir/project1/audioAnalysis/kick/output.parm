@@ -1,0 +1,26 @@
+?
+w 0 30
+h 0 30
+vmode 0 anchors
+bottomanchor 0 0.2
+topanchor 0 0.8
+alignorder 0 5
+helpdat 256 ./help
+bgcolorr 49 0 me.par.Bgcolorr
+bgcolorg 49 0 me.par.Bgcolorg
+bgcolorb 49 0 me.par.Bgcolorb
+bgalpha 49 0 me.par.Bgcolora
+top 0 ./icon
+topfill 256 off
+topsmoothness 0 mipmap
+borderover 0 off
+crop 0 on
+parentshortcut 256 label
+clone 273 "" "'' if op('/gal/label')==None  else '/gal/label'"
+Label 67108928 ""
+Fontsize 67109056 12
+Bgcolorr 67108977 0.17 ".1 + parent().par.Output * .7"
+Bgcolorg 67108977 0.17 me.par.Bgcolorr
+Bgcolorb 67108977 0.17 me.par.Bgcolorr
+Bgcolora 67108960 1
+?

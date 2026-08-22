@@ -1,0 +1,30 @@
+?
+pages 3 Config Look2 Extra
+772804868 Label Label 1 1 0 0 1 1 1 2 0 "" "" Config 0
+772804868 Help Help 1 1 0 0 1 1 1 2 0 "" "" Config 1
+772804865 Value1 Value 1 1 0 0 1 1 1 2 0 "" "" Config 2
+772804865 Default1 Default 1 1 0 0 1 1 1 2 0 "" "" Config 3
+772804879 Behavior Behavior 1 1 0 0 1 1 1 2 0 momentary "" Config 4097 6 none None momentary Momentary pulse Pulse toggledown Toggle toggleup "Toggle on Up" toggleupany "Toggle on Up Anywhere" 4
+772804868 Runofftoon "Run Command" 1 1 0 0 1 1 1 2 0 "" "" Config 6
+772804879 Labellocate "Label Location" 1 1 0 0 1 1 1 2 0 "" "" Look2 4097 4 none None left Left right Right top Top 0
+772804865 Labelwidth "Label Width" 1 1 0 0 1 1 200 2 60 "" "" Look2 1
+772804879 Labelalign "Label Align" 1 1 0 0 1 1 1 2 0 "" "" Look2 4097 3 left Left center Center right Right 2
+772804867 Fontauto "Font Auto-size" 1 1 0 0 1 1 1 2 1 "" "" Look2 3
+772935937 Fontsize "Font Size" 1 1 0 1 1 1 40 2 12 "" "" Look2 4 "not me.par.Fontauto"
+772804879 Indicator Indicator 1 1 0 0 1 1 1 2 0 text "" Look2 4097 3 text Text icon Icon texticon "Text and Icon" 5
+772804868 Texton "Text On" 1 1 0 0 1 1 1 2 0 "" "" Look2 7
+772804868 Textoff "Text Off" 1 1 0 0 1 1 1 2 0 "" "" Look2 8
+772804868 Textonroll "Text On Rollover" 1 1 0 0 1 1 1 2 0 "" "" Look2 9
+772804868 Textoffroll "Text Off Rollover" 1 1 0 0 1 1 1 2 0 "" "" Look2 10
+772804874 Icontopon "Icon TOP On" 1 1 0 0 1 1 1 2 0 "" "" Look2 11
+772804874 Icontopoff "Icon TOP Off" 1 1 0 0 1 1 1 2 0 "" "" Look2 12
+772804874 Icontoponroll "Icon TOP On Rollover" 1 1 0 0 1 1 1 2 0 "" "" Look2 13
+772804874 Icontopoffroll "Icon TOP Off Rollover" 1 1 0 0 1 1 1 2 0 "" "" Look2 14
+772804879 Horizvert "Horizontal Vertical" 1 1 0 0 1 1 1 2 0 "" "" Config 4097 3 auto Auto horizontal Horizontal vertical Vertical 7
+772804877 Extend "Extend COMP" 1 1 0 0 1 1 1 2 0 "" "" Extra 2
+772804879 Textalign "Text Align" 1 1 0 0 1 1 1 2 0 center "" Look2 4097 3 left Left center Center right Right 6
+772804868 Name1 "Channel Name" 1 1 0 0 1 1 1 2 0 v1 "" Config 5
+772809729 Bgcolor "Back Color" 1 1 0 0 1 1 1 1 0 0 1 1 1 1 0 0 1 1 1 1 0 0 1 1 1 2 0.1 "" "" 2 0.1 "" "" 2 0.1 "" "" 2 1 "" "" Look2 15
+772804867 Mappable Mappable 1 1 0 0 1 1 1 2 1 "" "" Extra 1
+772804867 Push1 "Push Value to Source" 1 1 0 0 1 1 1 2 0 "" "" Extra 0
+?

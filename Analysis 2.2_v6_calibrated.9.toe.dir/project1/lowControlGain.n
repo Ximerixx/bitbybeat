@@ -1,0 +1,10 @@
+CHOP:math
+tile 375 -150 298 158
+flags =  viewer 1 parlanguage 0
+inputs
+{
+0 	lagClearRythmIn_
+}
+color 0.67 0.67 0.67 
+view -1 5 -1 1 0.034375 -1.5 1.5 4 3 2456 10 0 1 *
+end

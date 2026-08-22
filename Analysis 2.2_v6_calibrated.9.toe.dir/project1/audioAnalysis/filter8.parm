@@ -1,0 +1,7 @@
+?
+width 0 0.5
+spike 0 0.1
+speedcoeff 0 0
+timeslice 0 on
+autoexportroot 17 "" me.parent()
+?

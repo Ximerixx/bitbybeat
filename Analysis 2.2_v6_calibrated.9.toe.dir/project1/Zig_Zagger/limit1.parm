@@ -1,0 +1,5 @@
+?
+type 0 zigzag
+min 17 0 op('par2')['Zigzaggerrangex']
+max 17 4 op('par2')['Zigzaggerrangey']
+?

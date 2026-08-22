@@ -1,0 +1,8 @@
+?
+driver 0 asio
+device 0 X-AIR_ASIO_Driver||6
+inputnames 0 "1:In_1 2:In_2"
+format 0 stereo
+ratemode 0 resample
+timeslice 0 on
+?

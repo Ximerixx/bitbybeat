@@ -1,0 +1,7 @@
+?
+pageindex 0 1
+convert 0 bound
+boundmin 34 0.3
+boundmax 34 0.5
+autoexportroot 17 "" me.parent()
+?

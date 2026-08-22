@@ -1,0 +1,10 @@
+?
+pages 1 Controls
+772805121 Torange3 "Jump Range" 1 1 0 0 1 1 1 1 0 0 1 1 1 2 0 "" "" 2 1 "" "" Controls 0
+772804865 Audiofloat "Audio Level Amp" 1 1 0 0 1 1 1 2 0 "" "" Controls 3
+772804865 Lagfloat2 LAG 1 1 0 0 1 1 1 2 0 "" "" Controls 2
+772804885 Zigzagger Zig-Zagger 1 1 0 0 1 1 1 2 0 "" "" Controls 4
+772804866 Increments "Increments %" 1 1 0 0 1 1 100 2 20 "" "" Controls 6
+1846546703 Channames "Jumper Trigger" 1 1 0 0 1 1 1 2 0 * "" Controls 4097 9 * * trigger4k trigger4k trigger4s trigger4s trigger8k trigger8k trigger8s trigger8s trigger16k trigger16k trigger16s trigger16s kick kick snare snare 1 2 op('./select4').par.channames
+772804879 Mode Mode 1 1 0 0 1 1 1 2 0 "" "" Controls 4097 3 0 Random 2 Loop 3 Zig-Zag 5
+?

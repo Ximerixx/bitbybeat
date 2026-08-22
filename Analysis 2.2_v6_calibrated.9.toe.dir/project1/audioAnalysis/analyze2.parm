@@ -1,0 +1,4 @@
+?
+function 0 rmspower
+autoexportroot 17 "" me.parent()
+?

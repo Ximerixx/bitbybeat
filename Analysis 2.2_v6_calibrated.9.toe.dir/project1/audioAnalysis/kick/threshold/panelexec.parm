@@ -1,0 +1,8 @@
+?
+fromop 17 "" me.parent()
+panels 16 .. me.parent()
+panelvalue 16 "click select key" ''
+whileon 0 on
+valuechange 0 on
+defaultreadencoding 0 cp1252
+?

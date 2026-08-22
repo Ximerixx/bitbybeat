@@ -1,0 +1,9 @@
+CHOP:rename
+tile 50 -1650 78 48
+flags =  viewer 1 parlanguage 0
+inputs
+{
+0 	trigger16s
+}
+color 0.55 0.55 0.55 
+end

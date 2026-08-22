@@ -1,0 +1,21 @@
+?
+pageindex 0 2
+radiusx 49 56 parent().par.Arcdiameter*.5*2
+radiusy 49 56 me.par.radiusx
+radiusunit 32 pixels
+fillcolorr 0 0
+fillcolorg 0 0
+fillcolorb 0 0
+fillalpha 0 0
+borderr 32 1
+borderg 32 1
+borderb 32 1
+borderwidth 49 8.988 parent().par.Arcthickness*2
+borderwidthunit 32 pixels
+beginarcangle 17 240 parent().par.Arcanglehigh
+endarcangle 17 -60 parent().par.Arcanglelow
+softnessoffset 0 0.5
+softnesstype 0 hybridcubic
+resolutionw 49 60 op('text').width*2
+resolutionh 49 60 op('text').height*2
+?

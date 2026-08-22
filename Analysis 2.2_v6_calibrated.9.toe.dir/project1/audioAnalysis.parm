@@ -1,0 +1,64 @@
+?
+pageindex 0 7
+x 0 5
+y 0 92
+w 0 600
+h 0 190
+display 0 off
+bgcolorr 0 0.1
+bgcolorg 0 0.1
+bgcolorb 0 0.1
+bgalpha 0 1
+top 0 ./wavepannel
+topsmoothness 0 mipmap
+borderar 0 0.3
+borderag 0 0.3
+borderab 0 0.3
+leftborder 0 bordera
+rightborder 0 bordera
+bottomborder 0 bordera
+topborder 0 bordera
+parentshortcut 256 AudioAnalysis
+Lowthresh 67108928 0.116
+Lowgain 67108977 1.84 op('lowControlGain')[0]
+Highthresh 67108928 0.116
+Highgain 67108977 1.45 op('highControlGain1')[0]
+Lowsmooth 67108928 0.276
+Highsmooth 67108928 0.093
+Low 67109201 0 op('./low_')[0]
+Mid 67109201 0 op('./mid_')[0]
+High 67109201 0 op('./high_')[0]
+Kickthresh 67108977 0.328 op('kickControlThreshold')[0]
+Kickdetection 67109201 0 op('./Kickdrum')[0]
+Snarethresh 67108977 0.338 op('snareControlThreshold')[0]
+Snaredetection 67109201 0 op('./Snare')[0]
+Rythmthresh 67109489 69.9 op('rythmControlThreshold')[0] op('rythmControlGain')[0]
+Rythm 67109201 0 op('./Rythm_')[0]
+Spectralcentroid 67109201 0 op('./centroid')[0]
+Fmp 67109201 0.385 op('./fms')[0]
+Smp 67109201 0 op('./sms')[0]
+Midthresh 67108928 0.052
+Midgain 67108977 1.98 op('midControlGain')[0]
+Midsmooth 67108928 0.224
+Lowadd 67108928 -0.492
+Midadd 67108928 -0.363
+Highadd 67108928 -0.32
+Version 67109184 6.1.1
+Galmap 67109056 off
+Lowactive 67108928 on
+Midactive 67108928 on
+Highactive 67108928 on
+Kickactive 67108928 on
+Snareactive 67108928 on
+Rythmactive 67108928 on
+Toxsavebuild 67109184 2023.11310
+Neutonenotice 67109184 "See inside to install Nutone VST first"
+Neutonebass 67109056 0
+Neutonedrums 67109056 0
+Neutonevocals 67109056 0
+Neutoneother 67109056 0
+Listenvolume 67108928 0.612
+Ssdactive 67108928 on
+Fsdactive 67108928 on
+Scactive 67108928 on
+?

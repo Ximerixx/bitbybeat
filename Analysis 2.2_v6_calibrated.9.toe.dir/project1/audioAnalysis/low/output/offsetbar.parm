@@ -1,0 +1,15 @@
+?
+pageindex 0 1
+x 49 0 "[min(op('math')[0], op('math')[1]), parent().width-4][ipar.Slider.Flip]"
+y 49 2 "[2, min(op('math')[0], op('math')[1])][ipar.Slider.Flip]"
+w 49 32 "[abs(op('math')[0] - op('math')[1]), 2][ipar.Slider.Flip]"
+h 49 2 "[2, abs(op('math')[0] - op('math')[1])][ipar.Slider.Flip]"
+layer 0 1
+display 49 on parent().par.Showoffset
+clickthrough 0 on
+bgcolorr 0 0.06666
+bgcolorg 0 0.4
+bgcolorb 0 0.06666
+bgalpha 0 1
+borderover 0 off
+?

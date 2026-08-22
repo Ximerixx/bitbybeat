@@ -1,0 +1,7 @@
+DAT:table
+tile 3480 -1055 130 90
+flags =  viewer 1 activate on showDocked off parlanguage 0
+color 0.55 0.55 0.55 
+dock Rythm_
+view -1 8 0 1 1 1 0 0 0 0 1 1 0
+end

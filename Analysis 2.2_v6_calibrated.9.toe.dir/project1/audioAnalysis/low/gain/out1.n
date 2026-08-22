@@ -1,0 +1,9 @@
+CHOP:out
+tile 1379 73 142 54
+flags =  viewer 1 parlanguage 0
+inputs
+{
+0 	val
+}
+color 0.56 0.56 0.56 
+end

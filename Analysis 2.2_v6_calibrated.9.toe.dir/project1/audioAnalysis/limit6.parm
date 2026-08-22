@@ -1,0 +1,6 @@
+?
+type 0 clamp
+min 49 8 parent().par.Rythmthresh
+max 0 100
+autoexportroot 17 "" me.parent()
+?
