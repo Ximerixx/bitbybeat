@@ -1,0 +1,7 @@
+# Кросс-компиляция в Windows .exe с Linux через mingw-w64 (без MSVC/Visual Studio).
+# Требуется пакет mingw-w64:  sudo apt install -y mingw-w64
+# Сборка:  cargo build --release --target x86_64-pc-windows-gnu
+# Результат: target/x86_64-pc-windows-gnu/release/bitbybeat.exe
+[target.x86_64-pc-windows-gnu]
+linker = "x86_64-w64-mingw32-gcc"
+ar = "x86_64-w64-mingw32-gcc-ar"
