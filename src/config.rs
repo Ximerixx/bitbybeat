@@ -40,11 +40,15 @@ pub struct InputCfg {
     pub pulse_source: Option<String>,
     /// Show/prefer monitor sources (loopback system output).
     pub prefer_monitor: bool,
+    /// Индексы каналов устройства для анализа (0-based). Пусто = даунмикс всех в моно.
+    /// Для многоканальных интерфейсов (напр. микшер 18 in) — выбрать нужные 1–2 канала.
+    #[serde(default)]
+    pub channels_pick: Vec<usize>,
     pub file_path: Option<String>,
 }
 impl Default for InputCfg {
     fn default() -> Self {
-        Self { source: Source::Device, device: None, pulse_source: None, prefer_monitor: true, file_path: None }
+        Self { source: Source::Device, device: None, pulse_source: None, prefer_monitor: true, channels_pick: Vec::new(), file_path: None }
     }
 }
 

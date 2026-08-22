@@ -11,8 +11,9 @@ eframe = { version = "0.29", default-features = true }
 egui = "0.29"
 egui_plot = "0.29"
 
-# Аудио I/O (приоритет — устройства, в т.ч. monitor-источники; см. md_plans/10 R6)
-cpal = "0.15"
+# Аудио I/O (приоритет — устройства, в т.ч. monitor-источники; см. md_plans/10 R6).
+# 0.18: пофикшены ALSA-паники (get_htstamp / assertion left==right) из cpal 0.15.
+cpal = "0.18"
 
 # DSP
 realfft = "3"

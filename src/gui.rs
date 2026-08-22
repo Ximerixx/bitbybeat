@@ -10,7 +10,7 @@ use std::sync::Arc;
 
 pub struct App {
     shared: Arc<Shared>,
-    devices: Vec<String>,
+    devices: Vec<audio::DeviceInfo>,
     pulse_sources: Vec<audio::PulseSource>,
     preset_path: String,
     status: String,
@@ -160,39 +160,84 @@ impl eframe::App for App {
                     ui.selectable_value(&mut cfg.input.source, Source::File, "Файл (опц.)");
                 });
 
-            ui.checkbox(&mut cfg.input.prefer_monitor, "предпочитать monitor-источники");
+            let pm = ui.checkbox(&mut cfg.input.prefer_monitor, "предпочитать monitor-источники")
+                .on_hover_text("при включении автоматически выбирает первый monitor выхода (системный звук)");
+            if pm.changed() && cfg.input.prefer_monitor {
+                if let Some(mon) = self.pulse_sources.iter().find(|s| s.is_monitor) {
+                    cfg.input.pulse_source = Some(mon.name.clone());
+                    shared.restart_audio.store(true, Ordering::Relaxed);
+                }
+            }
 
             // PulseAudio-источники (в т.ч. .monitor выходов) — захват через parec (мимо ALSA-плагина).
-            let cur_pulse = cfg.input.pulse_source.clone().unwrap_or_else(|| "— нет (ALSA-устройство) —".into());
+            let cur_pulse = match &cfg.input.pulse_source {
+                Some(n) => self.pulse_sources.iter().find(|s| &s.name == n)
+                    .map(|s| s.label().to_string()).unwrap_or_else(|| n.clone()),
+                None => "— нет (ALSA-устройство) —".into(),
+            };
             egui::ComboBox::from_label("pulse source (monitor)")
                 .selected_text(cur_pulse)
                 .width(280.0)
                 .show_ui(ui, |ui| {
                     ui.selectable_value(&mut cfg.input.pulse_source, None, "— нет (ALSA-устройство) —");
                     for s in &self.pulse_sources {
-                        let tag = if s.is_monitor { format!("🔁 {}", s.name) } else { s.name.clone() };
+                        let tag = if s.is_monitor { format!("🔁 {}", s.label()) } else { s.label().to_string() };
                         ui.selectable_value(&mut cfg.input.pulse_source, Some(s.name.clone()), tag);
                     }
                 })
                 .response
-                .on_hover_text("захват системного звука: выберите *.monitor вашего выхода (через parec, без паник cpal)");
+                .on_hover_text("захват системного звука: выберите 🔁 monitor вашего выхода (через parec, без паник cpal)");
 
             let cur = cfg.input.device.clone().unwrap_or_else(|| "— default —".into());
             ui.add_enabled_ui(cfg.input.pulse_source.is_none(), |ui| {
                 egui::ComboBox::from_label("ALSA device")
                     .selected_text(cur)
+                    .width(280.0)
                     .show_ui(ui, |ui| {
                         ui.selectable_value(&mut cfg.input.device, None, "— default —");
                         for d in &self.devices {
-                            let tag = if audio::is_monitor(d) { format!("🔁 {d}") } else { d.clone() };
-                            ui.selectable_value(&mut cfg.input.device, Some(d.clone()), tag);
+                            let base = format!("{} [{}ch]", d.name, d.channels);
+                            let tag = if audio::is_monitor(&d.name) { format!("🔁 {base}") } else { base };
+                            ui.selectable_value(&mut cfg.input.device, Some(d.name.clone()), tag);
                         }
                     });
             });
+
+            // Выбор каналов для многоканальных устройств (микшер/интерфейс).
+            if cfg.input.pulse_source.is_none() {
+                let nch = match &cfg.input.device {
+                    Some(name) => self.devices.iter().find(|d| &d.name == name).map(|d| d.channels).unwrap_or(0),
+                    None => 0,
+                };
+                if nch > 1 {
+                    ui.label(format!("каналы устройства: {nch} — выбери нужные (1–2)"));
+                    egui::ScrollArea::horizontal().max_height(64.0).show(ui, |ui| {
+                        ui.horizontal_wrapped(|ui| {
+                            for i in 0..nch as usize {
+                                let mut on = cfg.input.channels_pick.contains(&i);
+                                if ui.toggle_value(&mut on, format!("{i}"))
+                                    .on_hover_text(format!("канал {i}"))
+                                    .changed()
+                                {
+                                    if on { cfg.input.channels_pick.push(i); }
+                                    else { cfg.input.channels_pick.retain(|&x| x != i); }
+                                    cfg.input.channels_pick.sort_unstable();
+                                }
+                            }
+                        });
+                    });
+                    ui.weak("пусто = моно-даунмикс всех; выбранные усредняются в моно");
+                }
+            }
             ui.horizontal(|ui| {
                 if ui.button("обновить списки").clicked() {
                     self.devices = audio::list_input_devices();
                     self.pulse_sources = audio::list_pulse_sources();
+                    if cfg.input.prefer_monitor && cfg.input.pulse_source.is_none() {
+                        if let Some(mon) = self.pulse_sources.iter().find(|s| s.is_monitor) {
+                            cfg.input.pulse_source = Some(mon.name.clone());
+                        }
+                    }
                 }
                 if ui.button("применить (restart)").clicked() {
                     shared.restart_audio.store(true, Ordering::Relaxed);

@@ -20,13 +20,13 @@ fn main() -> eframe::Result<()> {
     if std::env::args().any(|a| a == "--list-devices") {
         println!("== cpal input devices ==");
         for d in audio::list_input_devices() {
-            let tag = if audio::is_monitor(&d) { " [monitor]" } else { "" };
-            println!("  {d}{tag}");
+            let tag = if audio::is_monitor(&d.name) { " [monitor]" } else { "" };
+            println!("  {} [{}ch]{tag}", d.name, d.channels);
         }
         println!("== pulse sources (pactl) ==");
         for s in audio::list_pulse_sources() {
             let tag = if s.is_monitor { " [monitor]" } else { "" };
-            println!("  {}{}", s.name, tag);
+            println!("  {}  ({}){}", s.name, s.label(), tag);
         }
         return Ok(());
     }

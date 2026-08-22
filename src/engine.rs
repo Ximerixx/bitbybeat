@@ -210,7 +210,7 @@ fn open_audio(
     }
     let rb = HeapRb::<f32>::new(48000 * 2);
     let (prod, cons) = rb.split();
-    match AudioInput::open(cfg.input.device.as_deref(), cfg.input.pulse_source.as_deref(), prod) {
+    match AudioInput::open(cfg.input.device.as_deref(), cfg.input.pulse_source.as_deref(), &cfg.input.channels_pick, prod) {
         Ok(inp) => {
             let sr = inp.sample_rate;
             (Some(inp), Some(cons), sr, None)
