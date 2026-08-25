@@ -32,6 +32,9 @@ pub struct Metrics {
     pub flux: f32,
     pub dsp_rms: f32,
     pub beat_phase: f32,
+    /// Позиция в такте 4 (1..4), 0 если ещё не было ударов.
+    pub kick_bar_pos: u32,
+    pub snare_bar_pos: u32,
     pub compute_frame_id: u64,
     pub spectrum: [f32; SPECTRUM_DRAW_BINS],
     /// Сколько первых бинов в `spectrum` валидны (≤ SPECTRUM_DRAW_BINS).
@@ -48,6 +51,8 @@ pub struct Metrics {
     pub compute_dt_ms: f32,
     /// Отклонение OSC-тика от дедлайна, мс (EMA).
     pub osc_jitter_ms: f32,
+    /// Задержка OSC send относительно compute-кадра (send_mono − t_mono), мс.
+    pub osc_send_latency_ms: f32,
 }
 
 impl Default for Metrics {
@@ -71,6 +76,8 @@ impl Default for Metrics {
             flux: 0.0,
             dsp_rms: 0.0,
             beat_phase: 0.0,
+            kick_bar_pos: 0,
+            snare_bar_pos: 0,
             compute_frame_id: 0,
             spectrum: [0.0; SPECTRUM_DRAW_BINS],
             spectrum_len: 0,
@@ -83,6 +90,7 @@ impl Default for Metrics {
             ringbuf_fill: 0.0,
             compute_dt_ms: 0.0,
             osc_jitter_ms: 0.0,
+            osc_send_latency_ms: 0.0,
         }
     }
 }
@@ -108,6 +116,8 @@ impl Metrics {
         dst.flux = self.flux;
         dst.dsp_rms = self.dsp_rms;
         dst.beat_phase = self.beat_phase;
+        dst.kick_bar_pos = self.kick_bar_pos;
+        dst.snare_bar_pos = self.snare_bar_pos;
         dst.compute_frame_id = self.compute_frame_id;
         dst.spectrum = self.spectrum;
         dst.spectrum_len = self.spectrum_len;
@@ -120,6 +130,7 @@ impl Metrics {
         dst.ringbuf_fill = self.ringbuf_fill;
         dst.compute_dt_ms = self.compute_dt_ms;
         dst.osc_jitter_ms = self.osc_jitter_ms;
+        dst.osc_send_latency_ms = self.osc_send_latency_ms;
     }
 }
 
@@ -132,6 +143,7 @@ pub struct MetricsDoubleBuffer {
     osc_send_err: AtomicU64,
     osc_bundle_seq: AtomicU64,
     osc_jitter_bits: AtomicU32,
+    osc_send_latency_bits: AtomicU32,
     osc_last_error: Mutex<Option<String>>,
 }
 
@@ -145,6 +157,7 @@ impl MetricsDoubleBuffer {
             osc_send_err: AtomicU64::new(0),
             osc_bundle_seq: AtomicU64::new(0),
             osc_jitter_bits: AtomicU32::new(0f32.to_bits()),
+            osc_send_latency_bits: AtomicU32::new(0f32.to_bits()),
             osc_last_error: Mutex::new(None),
         }
     }
@@ -158,6 +171,8 @@ impl MetricsDoubleBuffer {
         m.osc_send_err = self.osc_send_err.load(Ordering::Relaxed);
         m.osc_bundle_seq = self.osc_bundle_seq.load(Ordering::Relaxed);
         m.osc_jitter_ms = f32::from_bits(self.osc_jitter_bits.load(Ordering::Relaxed));
+        m.osc_send_latency_ms =
+            f32::from_bits(self.osc_send_latency_bits.load(Ordering::Relaxed));
         m.osc_last_error = self.osc_last_error.lock().unwrap().clone();
         m.error = self.engine_error.lock().unwrap().clone();
     }
@@ -189,6 +204,11 @@ impl MetricsDoubleBuffer {
     pub fn set_osc_jitter(&self, jitter_ms: f32) {
         self.osc_jitter_bits
             .store(jitter_ms.to_bits(), Ordering::Relaxed);
+    }
+
+    pub fn set_osc_send_latency(&self, latency_ms: f32) {
+        self.osc_send_latency_bits
+            .store(latency_ms.to_bits(), Ordering::Relaxed);
     }
 }
 

@@ -87,6 +87,8 @@ impl App {
     fn commit_config(&mut self) {
         if self.config_dirty {
             self.shared.config.store(self.cfg_edit.clone());
+            let v = self.shared.config.version();
+            diag::debug("app", format!("config committed v{v}"));
             self.config_dirty = false;
         }
     }
@@ -291,12 +293,19 @@ fn band_gain_ui(ui: &mut egui::Ui, manual: &mut f32, live: f32, adaptive_on: boo
     });
 }
 
-fn latency_budget_ui(ui: &mut egui::Ui, ring: f32, compute_ms: f32, osc_jitter_ms: f32) {
+fn latency_budget_ui(
+    ui: &mut egui::Ui,
+    ring: f32,
+    compute_ms: f32,
+    osc_jitter_ms: f32,
+    osc_send_latency_ms: f32,
+) {
     ui.label(format!(
-        "latency: ring {:.0}%  compute {:.1}ms  OSC jitter {:.1}ms",
+        "latency: ring {:.0}%  compute {:.1}ms  OSC jitter {:.1}ms  send lag {:.1}ms",
         ring * 100.0,
         compute_ms,
         osc_jitter_ms,
+        osc_send_latency_ms,
     ));
     ui.horizontal(|ui| {
         let ring_c = if ring > 0.7 {
@@ -500,7 +509,13 @@ impl eframe::App for App {
                     );
                 }
                 ui.separator();
-                latency_budget_ui(ui, m.ringbuf_fill, m.compute_dt_ms, m.osc_jitter_ms);
+                latency_budget_ui(
+                    ui,
+                    m.ringbuf_fill,
+                    m.compute_dt_ms,
+                    m.osc_jitter_ms,
+                    m.osc_send_latency_ms,
+                );
                 ui.separator();
                 ui.label(format!(
                     "frame {}  bundleSeq {}  phase {:.2}  OSC ok/err {}/{}",
@@ -762,6 +777,12 @@ impl eframe::App for App {
             ui.label(format!("устройство: {}", m.device_name));
             ui.label(format!("sr: {:.0} Гц   OSC-каналов: {}", m.sample_rate, m.osc_channels));
             ui.label(format!("beat phase: {:.3}", m.beat_phase));
+            if m.kick_bar_pos > 0 || m.snare_bar_pos > 0 {
+                ui.label(format!(
+                    "такт: kick {}/4  snare {}/4",
+                    m.kick_bar_pos, m.snare_bar_pos
+                ));
+            }
             if let Some(e) = &m.error { ui.colored_label(egui::Color32::RED, e); }
             if let Some(e) = &m.osc_last_error { ui.colored_label(egui::Color32::RED, format!("OSC: {e}")); }
             meter(ui, "input rms", m.input_rms, 1.0);

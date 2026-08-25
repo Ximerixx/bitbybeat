@@ -224,6 +224,7 @@ impl BandProcessor {
     }
 
     /// Прогнать блок аудио (legacy / тесты); engine использует `BandBank::process_frame`.
+    #[allow(dead_code)]
     pub fn process_block(&mut self, mono: &[f32], cfg: &BandCfg, dt: f32) -> (f32, f32) {
         if !cfg.active {
             return self.finish_tick(0.0, cfg, dt);

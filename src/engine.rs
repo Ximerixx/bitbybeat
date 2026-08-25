@@ -32,7 +32,7 @@ fn run(shared: Arc<Shared>) {
     }
 
     let mut band_bank = BandBank::new(&cfg0.bands, sample_rate);
-    let mut band_cfg_len = cfg0.bands.len();
+    let mut last_cfg_version = shared.config.version();
     let mut kick_det = BeatDetector::default();
     let mut snare_det = BeatDetector::default();
     let mut rythm_det = BeatDetector::default();
@@ -77,13 +77,19 @@ fn run(shared: Arc<Shared>) {
             snare_counts = CounterBank::default();
             trigger_state = TriggerState::default();
             shared.timeline.reset();
+            diag::debug(
+                "engine",
+                format!("audio restart sr={sample_rate:.0} err={err:?}"),
+            );
             shared.metrics.note_engine_error(err);
             diag::info("engine", "аудио перезапущено");
         }
 
-        if band_cfg_len != cfg.bands.len() {
+        let cfg_version = shared.config.version();
+        if cfg_version != last_cfg_version {
             band_bank.redesign(&cfg.bands, sample_rate);
-            band_cfg_len = cfg.bands.len();
+            last_cfg_version = cfg_version;
+            diag::debug("engine", format!("config v{cfg_version}: band_bank redesign"));
         }
 
         frame.clear();
@@ -203,6 +209,8 @@ fn run(shared: Arc<Shared>) {
         metrics.flux = spectrum.flux;
         metrics.dsp_rms = dsp_rms;
         metrics.beat_phase = beat_phase;
+        metrics.kick_bar_pos = kick_counts.c4.count();
+        metrics.snare_bar_pos = snare_counts.c4.count();
         metrics.compute_frame_id = frame_id;
         if n > 0 {
             metrics.spectrum[..n].copy_from_slice(&spectrum.mags[..n]);

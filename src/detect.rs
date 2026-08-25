@@ -76,9 +76,14 @@ impl BeatCounter {
     pub fn new(modulo: u32) -> Self { Self { modulo, count: 0, trigger: 0.0 } }
 
     /// Текущая позиция в цикле 1..=modulo (0 если ещё не было триггеров).
-    pub fn count(&self) -> u32 { self.count }
+    pub fn count(&self) -> u32 {
+        self.count
+    }
 
-    pub fn modulo(&self) -> u32 { self.modulo }
+    #[allow(dead_code)]
+    pub fn modulo(&self) -> u32 {
+        self.modulo
+    }
 
     /// Фаза 0..1 внутри цикла счётчика.
     pub fn phase(&self) -> f32 {

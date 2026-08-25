@@ -99,22 +99,24 @@ fn osc_float(addr: &str, v: f32) -> OscPacket {
 }
 
 /// Собрать один bundle: meta + каналы + квантованные импульсы.
-/// Удаляет из `pending` импульсы, включённые в bundle.
+/// `bundleTime` — время compute-кадра (`snapshot.t_mono`); `bundleSendTime` — момент send.
 fn build_bundle_packets(
     snapshot: &OscSnapshot,
     pending: &mut Vec<TriggerPulse>,
     phase_cfg: &OscPhaseCfg,
     bundle_seq: u64,
-    t_mono: f64,
+    send_mono: f64,
     include_meta: bool,
     clip_levels: bool,
 ) -> Vec<OscPacket> {
     let mut packets = Vec::new();
+    let frame_id = snapshot.frame_id;
 
     if include_meta {
         packets.push(osc_msg("bundleSeq", vec![OscType::Int(bundle_seq as i32)]));
-        packets.push(osc_float("bundleTime", t_mono as f32));
-        packets.push(osc_msg("bundleFrame", vec![OscType::Int(snapshot.frame_id as i32)]));
+        packets.push(osc_float("bundleTime", snapshot.t_mono as f32));
+        packets.push(osc_msg("bundleFrame", vec![OscType::Int(frame_id as i32)]));
+        packets.push(osc_float("bundleSendTime", send_mono as f32));
     }
 
     for (addr, val) in channels_for_send(&snapshot.channels, clip_levels) {
@@ -122,6 +124,16 @@ fn build_bundle_packets(
     }
 
     pending.retain(|p| {
+        if p.frame_id < frame_id {
+            diag::debug(
+                "osc",
+                format!(
+                    "drop stale pulse {} frame {} < {frame_id}",
+                    p.address, p.frame_id
+                ),
+            );
+            return false;
+        }
         if phase_cfg.quantize_triggers {
             let q = quantize_phase(p.phase, phase_cfg.phase_grid);
             let cur = quantize_phase(snapshot.beat_phase, phase_cfg.phase_grid);
@@ -178,6 +190,7 @@ fn run(shared: Arc<Shared>) {
                 match OscSender::connect(osc) {
                     Ok(s) => {
                         diag::info("osc", format!("подключено: {key}"));
+                        diag::debug("osc", format!("transport open {key}"));
                         sender = Some(s);
                         last_key = key;
                     }
@@ -193,6 +206,9 @@ fn run(shared: Arc<Shared>) {
             if let Some(s) = sender.as_mut() {
                 let snapshot = shared.osc_out.latest();
                 let send_mono = shared.timeline.mono_secs();
+                let send_latency_ms =
+                    ((send_mono - snapshot.t_mono).max(0.0) * 1000.0) as f32;
+                shared.metrics.set_osc_send_latency(send_latency_ms);
 
                 pending_triggers.extend(shared.trigger_queue.drain());
                 pending_triggers.extend(snapshot.pulses.iter().cloned());
