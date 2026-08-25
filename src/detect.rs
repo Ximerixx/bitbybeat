@@ -2,11 +2,14 @@
 
 use crate::config::DetectorCfg;
 
-/// Детектор удара: порог → гейт → триггер (с retrigger-блокировкой).
+/// Детектор удара: порог → гейт → триггер (retrigger + опц. hold + опц. hysteresis).
 #[derive(Clone, Default)]
 pub struct BeatDetector {
     prev_gate: bool,
     cooldown_s: f32,
+    /// Удержание выхода триггера после импульса.
+    trigger_held: f32,
+    silence_since_trigger: f32,
     pub gate: f32,
     pub trigger: f32,
 }
@@ -14,21 +17,51 @@ impl BeatDetector {
     /// `value` — уровень полосы/спектра; возвращает (gate, trigger) как 0/1.
     pub fn process(&mut self, value: f32, cfg: &DetectorCfg, dt: f32) -> (f32, f32) {
         if !cfg.active {
-            self.gate = 0.0; self.trigger = 0.0; self.prev_gate = false;
+            self.gate = 0.0;
+            self.trigger = 0.0;
+            self.prev_gate = false;
+            self.trigger_held = 0.0;
+            self.silence_since_trigger = 0.0;
             return (0.0, 0.0);
         }
-        if self.cooldown_s > 0.0 { self.cooldown_s -= dt; }
-        let gate = value > cfg.threshold;
+        if self.cooldown_s > 0.0 {
+            self.cooldown_s -= dt;
+        }
+
+        let on_thr = cfg.threshold;
+        let off_thr = if cfg.hysteresis_enabled && cfg.hysteresis > 0.0 {
+            (cfg.threshold - cfg.hysteresis).max(0.0)
+        } else {
+            cfg.threshold
+        };
+        let gate = if self.prev_gate { value > off_thr } else { value > on_thr };
         let rising = gate && !self.prev_gate;
-        let mut trig = 0.0;
+
+        let mut impulse = 0.0;
         if rising && self.cooldown_s <= 0.0 {
-            trig = 1.0;
+            impulse = 1.0;
             self.cooldown_s = cfg.retrigger_s;
         }
+
+        let trigger_out = if cfg.trigger_hold_enabled && cfg.trigger_hold_s > 0.0 {
+            if impulse > 0.5 {
+                self.trigger_held = 1.0;
+                self.silence_since_trigger = 0.0;
+            } else {
+                self.silence_since_trigger += dt;
+                if self.silence_since_trigger >= cfg.trigger_hold_s {
+                    self.trigger_held = 0.0;
+                }
+            }
+            self.trigger_held
+        } else {
+            impulse
+        };
+
         self.prev_gate = gate;
         self.gate = if gate { 1.0 } else { 0.0 };
-        self.trigger = trig;
-        (self.gate, trig)
+        self.trigger = trigger_out;
+        (self.gate, trigger_out)
     }
 }
 
@@ -41,6 +74,16 @@ pub struct BeatCounter {
 }
 impl BeatCounter {
     pub fn new(modulo: u32) -> Self { Self { modulo, count: 0, trigger: 0.0 } }
+
+    /// Текущая позиция в цикле 1..=modulo (0 если ещё не было триггеров).
+    pub fn count(&self) -> u32 { self.count }
+
+    pub fn modulo(&self) -> u32 { self.modulo }
+
+    /// Фаза 0..1 внутри цикла счётчика.
+    pub fn phase(&self) -> f32 {
+        if self.count == 0 { 0.0 } else { (self.count - 1) as f32 / self.modulo as f32 }
+    }
     /// На каждый входной trigger инкремент; импульс на начале цикла (count == 1, express `if $V==1`).
     pub fn process(&mut self, in_trigger: f32) -> f32 {
         self.trigger = 0.0;

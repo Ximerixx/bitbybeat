@@ -5,6 +5,69 @@ use realfft::{RealFftPlanner, RealToComplex};
 use std::collections::VecDeque;
 use std::sync::Arc;
 
+/// Три полосы: один проход по кадру (фильтр + RMS), затем post-process по полосе.
+pub struct BandBank {
+    processors: [BandProcessor; 3],
+}
+
+impl BandBank {
+    pub fn new(cfgs: &[BandCfg], sr: f32) -> Self {
+        let mut processors = [
+            BandProcessor::default_inactive(),
+            BandProcessor::default_inactive(),
+            BandProcessor::default_inactive(),
+        ];
+        for (p, c) in processors.iter_mut().zip(cfgs.iter().take(3)) {
+            *p = BandProcessor::new(c, sr);
+        }
+        Self { processors }
+    }
+
+    pub fn redesign(&mut self, cfgs: &[BandCfg], sr: f32) {
+        for (p, c) in self.processors.iter_mut().zip(cfgs.iter().take(3)) {
+            p.redesign(c, sr);
+        }
+    }
+
+    /// Один проход по `mono`: biquad ×3 + накопление энергии; затем threshold/smooth.
+    pub fn process_frame(
+        &mut self,
+        mono: &[f32],
+        cfgs: &[BandCfg],
+        adaptive_gains: [f32; 3],
+        control_enabled: bool,
+        dt: f32,
+    ) -> ([f32; 3], [f32; 3]) {
+        let n = mono.len();
+        let inv_n = if n > 0 { 1.0 / n as f32 } else { 0.0 };
+        let mut acc = [0.0f32; 3];
+
+        for &x in mono {
+            for i in 0..3 {
+                if cfgs.get(i).is_some_and(|c| c.active) {
+                    let f = self.processors[i].filter_sample(x);
+                    acc[i] += f * f;
+                }
+            }
+        }
+
+        let mut brms = [0.0f32; 3];
+        let mut levels = [0.0f32; 3];
+        for i in 0..3 {
+            let Some(bcfg) = cfgs.get(i) else { continue };
+            let mut eff = bcfg.clone();
+            if control_enabled {
+                eff.gain = adaptive_gains[i];
+            }
+            let rms = (acc[i] * inv_n).sqrt();
+            let (pre, out) = self.processors[i].finish_tick(rms, &eff, dt);
+            brms[i] = pre;
+            levels[i] = out;
+        }
+        (brms, levels)
+    }
+}
+
 /// RBJ-биквад (Direct Form I).
 #[derive(Clone, Default)]
 pub struct Biquad {
@@ -126,29 +189,52 @@ impl BandProcessor {
             last_out: 0.0,
         }
     }
+
+    fn default_inactive() -> Self {
+        Self {
+            filter: BiquadCascade::default(),
+            smooth: SmoothFilter::default(),
+            last_rms: 0.0,
+            last_out: 0.0,
+        }
+    }
+
     pub fn redesign(&mut self, cfg: &BandCfg, sr: f32) {
         self.filter = BiquadCascade::design(cfg.kind, sr, cfg.cutoff_hz, cfg.resonance, cfg.rolloff_db_oct);
     }
-    /// Прогнать блок аудио, вернуть (rms_полосы, уровень_после_сглаживания).
-    pub fn process_block(&mut self, mono: &[f32], cfg: &BandCfg, dt: f32) -> (f32, f32) {
+
+    #[inline]
+    pub fn filter_sample(&mut self, x: f32) -> f32 {
+        self.filter.process(x)
+    }
+
+    /// Post-process после одного прохода: RMS полосы → уровень.
+    pub fn finish_tick(&mut self, rms: f32, cfg: &BandCfg, dt: f32) -> (f32, f32) {
         if !cfg.active {
             self.last_rms = 0.0;
             self.last_out = self.smooth.process(0.0, cfg.smooth_s, dt);
             return (0.0, self.last_out);
         }
-        // фильтруем блок и берём RMS
-        let mut acc = 0.0f32;
-        for &x in mono {
-            let f = self.filter.process(x);
-            acc += f * f;
-        }
-        let rms = if mono.is_empty() { 0.0 } else { (acc / mono.len() as f32).sqrt() };
-        let pre = rms * cfg.pregain;                                   // math12/math16
-        let lvl = ((pre - cfg.threshold) * cfg.gain).clamp(0.0, 100.0); // math3/limit
-        let out = self.smooth.process(lvl + cfg.add, cfg.smooth_s, dt); // add + filter
+        let pre = rms * cfg.pregain;
+        let lvl = ((pre - cfg.threshold) * cfg.gain).clamp(0.0, 100.0);
+        let out = self.smooth.process(lvl + cfg.add, cfg.smooth_s, dt);
         self.last_rms = pre;
         self.last_out = out;
         (pre, out)
+    }
+
+    /// Прогнать блок аудио (legacy / тесты); engine использует `BandBank::process_frame`.
+    pub fn process_block(&mut self, mono: &[f32], cfg: &BandCfg, dt: f32) -> (f32, f32) {
+        if !cfg.active {
+            return self.finish_tick(0.0, cfg, dt);
+        }
+        let mut acc = 0.0f32;
+        for &x in mono {
+            let f = self.filter_sample(x);
+            acc += f * f;
+        }
+        let rms = if mono.is_empty() { 0.0 } else { (acc / mono.len() as f32).sqrt() };
+        self.finish_tick(rms, cfg, dt)
     }
 }
 

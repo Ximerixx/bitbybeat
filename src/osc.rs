@@ -1,90 +1,257 @@
-//! OSC-выход (md_plans/06): UDP на 127.0.0.1:7700, каналы `/<name> <float>`.
-//! Отправка вынесена в отдельный поток со своим таймером (`osc_rate_hz`), независимым от
-//! частоты обсчёта: compute-loop кладёт последний снимок в `shared.osc_out`, здесь мы его пушим.
+//! OSC-выход: один bundle на тик, meta seq/time, без нулевых триггеров.
 
-use crate::config::OscCfg;
+use crate::config::{OscCfg, OscPhaseCfg};
+use crate::diag;
+use crate::osc_map::{channels_for_send, is_trigger_address, OscSnapshot, TriggerPulse};
 use crate::shared::Shared;
-use anyhow::Result;
+use anyhow::{Context, Result};
 use rosc::{encoder, OscBundle, OscMessage, OscPacket, OscTime, OscType};
-use std::net::UdpSocket;
-use std::sync::atomic::Ordering;
+use std::io::Write;
+use std::net::{TcpStream, ToSocketAddrs, UdpSocket};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-pub struct OscSender {
-    socket: UdpSocket,
-    target: String,
+enum Transport {
+    Udp(UdpSocket),
+    Tcp(TcpStream),
+}
+
+struct OscSender {
+    transport: Transport,
 }
 
 impl OscSender {
-    pub fn new(cfg: &OscCfg) -> Result<Self> {
-        let socket = UdpSocket::bind("0.0.0.0:0")?;
-        Ok(Self { socket, target: format!("{}:{}", cfg.host, cfg.port) })
+    fn connect(cfg: &OscCfg) -> Result<Self> {
+        let addr = resolve(&cfg.host, cfg.port)?;
+        match cfg.transport {
+            crate::config::OscTransport::Udp => {
+                let socket = UdpSocket::bind("0.0.0.0:0").context("OSC UDP bind")?;
+                socket.connect(&addr).context("OSC UDP connect")?;
+                Ok(Self { transport: Transport::Udp(socket) })
+            }
+            crate::config::OscTransport::Tcp => {
+                let stream = TcpStream::connect(&addr).context("OSC TCP connect")?;
+                stream.set_nodelay(true).ok();
+                Ok(Self { transport: Transport::Tcp(stream) })
+            }
+        }
     }
 
-    /// Отправить набор (address, value). Одним bundle либо по сообщению — по конфигу.
-    pub fn send(&self, channels: &[(String, f32)], bundle: bool) -> Result<()> {
-        if bundle {
-            let msgs = channels
-                .iter()
-                .map(|(addr, v)| {
-                    OscPacket::Message(OscMessage {
-                        addr: format!("/{addr}"),
-                        args: vec![OscType::Float(*v)],
-                    })
-                })
-                .collect();
-            let packet = OscPacket::Bundle(OscBundle { timetag: OscTime::from((0u32, 1u32)), content: msgs });
-            let buf = encoder::encode(&packet)?;
-            self.socket.send_to(&buf, &self.target)?;
-        } else {
-            for (addr, v) in channels {
-                let packet = OscPacket::Message(OscMessage {
-                    addr: format!("/{addr}"),
-                    args: vec![OscType::Float(*v)],
-                });
-                let buf = encoder::encode(&packet)?;
-                self.socket.send_to(&buf, &self.target)?;
+    fn send_raw(&mut self, buf: &[u8]) -> Result<()> {
+        match &mut self.transport {
+            Transport::Udp(s) => {
+                s.send(buf)?;
+            }
+            Transport::Tcp(s) => {
+                let len = (buf.len() as u32).to_be_bytes();
+                s.write_all(&len)?;
+                s.write_all(buf)?;
+                s.flush()?;
             }
         }
         Ok(())
     }
+
+    fn send_bundle(&mut self, packets: Vec<OscPacket>, timetag: OscTime) -> Result<()> {
+        if packets.is_empty() {
+            return Ok(());
+        }
+        let packet = OscPacket::Bundle(OscBundle { timetag, content: packets });
+        let buf = encoder::encode(&packet)?;
+        self.send_raw(&buf)
+    }
 }
 
-/// Поток отправки OSC: тикает на `osc_rate_hz`, читает последний снимок из `shared.osc_out`.
-/// Пересоздаёт сокет при смене host/port. Отвязан от частоты обсчёта.
+fn resolve(host: &str, port: u16) -> Result<std::net::SocketAddr> {
+    let mut addrs = (host, port).to_socket_addrs().context("OSC resolve")?;
+    addrs.next().context("OSC: no addresses")
+}
+
+fn wall_osc_time() -> OscTime {
+    let dur = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default();
+    let secs = dur.as_secs() as u32;
+    let frac = ((dur.subsec_nanos() as u64) << 32) / 1_000_000_000;
+    OscTime::from((secs, frac as u32))
+}
+
+fn quantize_phase(phase: f32, grid: f32) -> f32 {
+    let g = grid.clamp(0.01, 1.0);
+    ((phase / g).round() * g).clamp(0.0, 1.0)
+}
+
+fn sleep_until(deadline: Instant) {
+    let now = Instant::now();
+    if deadline > now {
+        std::thread::sleep(deadline - now);
+    }
+}
+
+fn osc_msg(addr: &str, args: Vec<OscType>) -> OscPacket {
+    OscPacket::Message(OscMessage {
+        addr: format!("/{addr}"),
+        args,
+    })
+}
+
+fn osc_float(addr: &str, v: f32) -> OscPacket {
+    osc_msg(addr, vec![OscType::Float(v)])
+}
+
+/// Собрать один bundle: meta + каналы + квантованные импульсы.
+/// Удаляет из `pending` импульсы, включённые в bundle.
+fn build_bundle_packets(
+    snapshot: &OscSnapshot,
+    pending: &mut Vec<TriggerPulse>,
+    phase_cfg: &OscPhaseCfg,
+    bundle_seq: u64,
+    t_mono: f64,
+    include_meta: bool,
+    clip_levels: bool,
+) -> Vec<OscPacket> {
+    let mut packets = Vec::new();
+
+    if include_meta {
+        packets.push(osc_msg("bundleSeq", vec![OscType::Int(bundle_seq as i32)]));
+        packets.push(osc_float("bundleTime", t_mono as f32));
+        packets.push(osc_msg("bundleFrame", vec![OscType::Int(snapshot.frame_id as i32)]));
+    }
+
+    for (addr, val) in channels_for_send(&snapshot.channels, clip_levels) {
+        packets.push(osc_float(&addr, val));
+    }
+
+    pending.retain(|p| {
+        if phase_cfg.quantize_triggers {
+            let q = quantize_phase(p.phase, phase_cfg.phase_grid);
+            let cur = quantize_phase(snapshot.beat_phase, phase_cfg.phase_grid);
+            if (q - cur).abs() > phase_cfg.phase_grid * 0.51 {
+                return true;
+            }
+        }
+        if is_trigger_address(p.address) {
+            packets.push(osc_float(p.address, 1.0));
+        }
+        false
+    });
+
+    packets
+}
+
+fn report_send_err(shared: &Arc<Shared>, e: impl std::fmt::Display) {
+    let msg = format!("{e}");
+    diag::error("osc", &msg);
+    shared.metrics.record_osc_err(msg);
+}
+
+fn report_send_ok(shared: &Arc<Shared>, seq: u64) {
+    shared.metrics.record_osc_ok(seq);
+}
+
 pub fn spawn(shared: Arc<Shared>) -> std::thread::JoinHandle<()> {
-    std::thread::spawn(move || {
-        let mut sender: Option<OscSender> = None;
-        let mut last_target = String::new();
+    std::thread::spawn(move || run(shared))
+}
 
-        while shared.running.load(Ordering::Relaxed) {
-            let t0 = Instant::now();
-            let (enabled, bundle, host, port, rate) = {
-                let c = shared.config.lock().unwrap();
-                (c.osc.enabled, c.osc.bundle, c.osc.host.clone(), c.osc.port, c.osc_rate_hz)
-            };
-            let rate = rate.clamp(1.0, 480.0);
-            let tick = Duration::from_secs_f32(1.0 / rate);
+fn run(shared: Arc<Shared>) {
+    let mut sender: Option<OscSender> = None;
+    let mut last_key = String::new();
+    let mut pending_triggers: Vec<TriggerPulse> = Vec::new();
+    let mut jitter_ema = 0.0f32;
+    let bundle_seq = AtomicU64::new(0);
 
-            if enabled {
-                let target = format!("{host}:{port}");
-                if sender.is_none() || target != last_target {
-                    sender = OscSender::new(&OscCfg { enabled, host, port, bundle }).ok();
-                    last_target = target;
-                }
-                if let Some(s) = sender.as_ref() {
-                    let snapshot = shared.osc_out.lock().unwrap().clone();
-                    if !snapshot.is_empty() {
-                        let _ = s.send(&snapshot, bundle);
+    diag::info("osc", "поток OSC запущен");
+
+    while shared.running.load(Ordering::Acquire) {
+        let cfg = shared.config.load();
+        let osc = &cfg.osc;
+        let rate = cfg.osc_rate_hz.clamp(1.0, 480.0);
+
+        let deadline = if osc.phase.sync_timeline {
+            shared.timeline.next_osc_deadline(rate)
+        } else {
+            Instant::now() + Duration::from_secs_f32(1.0 / rate)
+        };
+
+        if osc.enabled {
+            let key = format!("{:?}:{}:{}", osc.transport, osc.host, osc.port);
+            if sender.is_none() || key != last_key {
+                match OscSender::connect(osc) {
+                    Ok(s) => {
+                        diag::info("osc", format!("подключено: {key}"));
+                        sender = Some(s);
+                        last_key = key;
+                    }
+                    Err(e) => {
+                        report_send_err(&shared, e);
+                        sender = None;
+                        sleep_until(deadline);
+                        continue;
                     }
                 }
             }
 
-            let elapsed = t0.elapsed();
-            if elapsed < tick {
-                std::thread::sleep(tick - elapsed);
+            if let Some(s) = sender.as_mut() {
+                let snapshot = shared.osc_out.latest();
+                let send_mono = shared.timeline.mono_secs();
+
+                pending_triggers.extend(shared.trigger_queue.drain());
+                pending_triggers.extend(snapshot.pulses.iter().cloned());
+
+                let seq = bundle_seq.fetch_add(1, Ordering::Relaxed) + 1;
+                let timetag = wall_osc_time();
+                let packets = build_bundle_packets(
+                    &snapshot,
+                    &mut pending_triggers,
+                    &osc.phase,
+                    seq,
+                    send_mono,
+                    osc.bundle_meta,
+                    osc.clip_levels_at_zero,
+                );
+
+                if !packets.is_empty() {
+                    if osc.bundle {
+                        match s.send_bundle(packets, timetag) {
+                            Ok(()) => report_send_ok(&shared, seq),
+                            Err(e) => report_send_err(&shared, e),
+                        }
+                    } else {
+                        let mut ok = true;
+                        for pkt in &packets {
+                            match encoder::encode(pkt) {
+                                Ok(buf) => {
+                                    if let Err(e) = s.send_raw(&buf) {
+                                        report_send_err(&shared, e);
+                                        ok = false;
+                                        break;
+                                    }
+                                }
+                                Err(e) => {
+                                    report_send_err(&shared, e);
+                                    ok = false;
+                                    break;
+                                }
+                            }
+                        }
+                        if ok {
+                            report_send_ok(&shared, seq);
+                        }
+                    }
+                }
             }
+        } else {
+            sender = None;
+            pending_triggers.clear();
+            let _ = shared.trigger_queue.drain();
         }
-    })
+
+        sleep_until(deadline);
+
+        let after = Instant::now();
+        let lateness_ms = after.saturating_duration_since(deadline).as_secs_f32() * 1000.0;
+        jitter_ema = jitter_ema * 0.9 + lateness_ms * 0.1;
+        shared.metrics.set_osc_jitter(jitter_ema);
+    }
+
+    diag::info("osc", "поток OSC остановлен");
 }

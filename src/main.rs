@@ -1,7 +1,6 @@
 //! bitbybeat — конфигурируемый аудиоанализатор → OSC.
 //! Порт TouchDesigner-прототипа `Analysis 2.2`. Документация тракта — в `md_plans/`.
 
-// В релизе на Windows прячем консольное окно (GUI-приложение). В debug — оставляем для логов.
 #![cfg_attr(all(not(debug_assertions), target_os = "windows"), windows_subsystem = "windows")]
 
 mod audio;
@@ -11,15 +10,18 @@ mod detect;
 mod dsp;
 mod engine;
 mod gui;
+mod diag;
 mod osc;
+mod osc_map;
+mod preset;
 mod shared;
 
 use config::Config;
+use diag::LogBus;
 use shared::Shared;
 use std::sync::atomic::Ordering;
 
 fn main() -> eframe::Result<()> {
-    // Диагностика источников без запуска окна.
     if std::env::args().any(|a| a == "--list-devices") {
         println!("== cpal input devices ==");
         for d in audio::list_input_devices() {
@@ -34,8 +36,21 @@ fn main() -> eframe::Result<()> {
         return Ok(());
     }
 
-    let config = Config::load_ron("preset.ron").unwrap_or_default();
-    let shared = Shared::new(config);
+    let logs = LogBus::new(2000);
+    diag::init(logs.clone());
+
+    let config = match Config::load_ron("preset.ron") {
+        Ok(c) => {
+            diag::info("app", "пресет preset.ron загружен");
+            c
+        }
+        Err(e) => {
+            diag::warn("app", format!("preset.ron не загружен ({e}), дефолт"));
+            Config::default()
+        }
+    };
+
+    let shared = Shared::new(config, logs.clone());
 
     let engine_handle = engine::spawn(shared.clone());
     let osc_handle = osc::spawn(shared.clone());
@@ -51,8 +66,7 @@ fn main() -> eframe::Result<()> {
         Box::new(|_cc| Ok(Box::new(app))),
     );
 
-    // остановить движок и дождаться
-    shared.running.store(false, Ordering::Relaxed);
+    shared.running.store(false, Ordering::Release);
     let _ = engine_handle.join();
     let _ = osc_handle.join();
     result

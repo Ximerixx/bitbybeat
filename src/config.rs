@@ -10,7 +10,7 @@ fn default_compute_rate() -> f32 { 120.0 }
 fn default_osc_rate() -> f32 { 60.0 }
 
 /// toggle + parameters (md_plans/10 R1/R3).
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Toggle<T> {
     pub enabled: bool,
     pub cfg: T,
@@ -31,7 +31,7 @@ pub enum Source {
     File,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct InputCfg {
     pub source: Source,
     /// Name of selected cpal/ALSA device (None → default).
@@ -56,7 +56,7 @@ impl Default for InputCfg {
 // pre-processing config
 
 /// Compressor `audiodyna` (dump: thr −20.6, ratio 0.638, gain +6.9 dB). Default — bypass (R1).
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct CompressorCfg {
     pub threshold_db: f32,
     pub ratio: f32,
@@ -70,7 +70,7 @@ impl Default for CompressorCfg {
 
 /// Аффинный множитель TD Math CHOP: `y = postoff + gain*(preoff + x)`, затем опц. remap 0..1 → torange.
 /// Всегда активен (R5) — только крутилки.
-#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub struct GainCfg {
     pub preoff: f32,
     pub gain: f32,
@@ -98,7 +98,7 @@ impl GainCfg {
 // sigmoid config
 
 /// Логистическая функция `ceil / (1 + exp(-k*(x - center)))` (R4/R5).
-#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub struct SigmoidCfg {
     pub enabled: bool,
     pub ceil: f32,
@@ -142,7 +142,7 @@ fn default_side_k() -> f32 { 3.0 }
 // lag config (stateful, no bypass)
 
 /// TD Lag CHOP. Времена нарастания/спада + ограничение ускорения. Bypass запрещён (R3).
-#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub struct LagCfg {
     pub lag_up: f32,
     pub lag_dn: f32,
@@ -158,7 +158,7 @@ impl Default for LagCfg {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum FilterKind { LowPass, BandPass, HighPass }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct BandCfg {
     pub name: String,
     pub kind: FilterKind,
@@ -179,18 +179,31 @@ pub struct BandCfg {
 
 // ─────────────────────────── Детекторы ───────────────────────────
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct DetectorCfg {
     pub name: String,
     /// Порог (может подменяться адаптивом).
     pub threshold: f32,
+    /// Минимальный интервал между импульсами триггера, сек.
     pub retrigger_s: f32,
     pub active: bool,
+    /// Вкл. гистерезис gate: гаснет ниже `threshold - hysteresis`.
+    #[serde(default)]
+    pub hysteresis_enabled: bool,
+    #[serde(default)]
+    pub hysteresis: f32,
+    /// Удерживать триггер = 1, пока не пройдёт `trigger_hold_s` без новых импульсов.
+    #[serde(default)]
+    pub trigger_hold_enabled: bool,
+    #[serde(default = "default_trigger_hold")]
+    pub trigger_hold_s: f32,
 }
+
+fn default_trigger_hold() -> f32 { 0.05 }
 
 // ─────────────────────────── Адаптивное управление ───────────────────────────
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ControlCfg {
     pub enabled: bool,
     /// Включить RMS в control-ветви (R3 — можно выключить, кроме гейна/lag).
@@ -235,23 +248,80 @@ impl Default for ControlCfg {
 
 // osc config
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum OscTransport {
+    #[default]
+    Udp,
+    Tcp,
+}
+
+/// Привязка триггеров и OSC-тиков к фазе такта (снижает джиттер относительно бита).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct OscPhaseCfg {
+    /// Квантовать импульсы к сетке фазы (0..1).
+    #[serde(default = "default_true")]
+    pub quantize_triggers: bool,
+    /// Шаг сетки фазы (0.25 = четверти такта в 4/4).
+    #[serde(default = "default_phase_grid")]
+    pub phase_grid: f32,
+    /// Якорить OSC sleep к общей временной шкале (вместо накопления дрейфа).
+    #[serde(default = "default_true")]
+    pub sync_timeline: bool,
+    /// Слать импульсы триггеров сразу при детекте (минуя очередь фазы).
+    #[serde(default)]
+    pub immediate_triggers: bool,
+}
+
+fn default_true() -> bool { true }
+fn default_phase_grid() -> f32 { 0.25 }
+
+impl Default for OscPhaseCfg {
+    fn default() -> Self {
+        Self {
+            quantize_triggers: true,
+            phase_grid: default_phase_grid(),
+            sync_timeline: true,
+            immediate_triggers: false,
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct OscCfg {
     pub enabled: bool,
     pub host: String,
     pub port: u16,
-    /// send one bundle (more efficient) instead of N messages (md_plans/09 C15).
+    /// Слать одним OSC-bundle (рекомендуется; отдельные сообщения — legacy).
     pub bundle: bool,
+    #[serde(default)]
+    pub transport: OscTransport,
+    #[serde(default)]
+    pub phase: OscPhaseCfg,
+    /// Включать `/bundleSeq` и `/bundleTime` в каждый bundle.
+    #[serde(default = "default_true")]
+    pub bundle_meta: bool,
+    /// На OSC: low/mid/high не ниже 0 (внутренняя математика без изменений).
+    #[serde(default)]
+    pub clip_levels_at_zero: bool,
 }
 impl Default for OscCfg {
     fn default() -> Self {
-        Self { enabled: true, host: "127.0.0.1".into(), port: 7700, bundle: true }
+        Self {
+            enabled: true,
+            host: "127.0.0.1".into(),
+            port: 7700,
+            bundle: true,
+            transport: OscTransport::Udp,
+            phase: OscPhaseCfg::default(),
+            bundle_meta: true,
+            clip_levels_at_zero: false,
+        }
     }
 }
 
 // core config
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Config {
     pub input: InputCfg,
     /// Пре-компрессор (R1, дефолт bypass).
@@ -297,9 +367,9 @@ impl Default for Config {
                 },
             ],
             detectors: vec![
-                DetectorCfg { name: "kick".into(),  threshold: 0.328, retrigger_s: 0.08, active: true },
-                DetectorCfg { name: "snare".into(), threshold: 0.338, retrigger_s: 0.0,  active: true },
-                DetectorCfg { name: "rythm".into(), threshold: 0.45,  retrigger_s: 0.12, active: true },
+                DetectorCfg { name: "kick".into(),  threshold: 0.328, retrigger_s: 0.08, active: true, hysteresis_enabled: false, hysteresis: 0.02, trigger_hold_enabled: false, trigger_hold_s: 0.05 },
+                DetectorCfg { name: "snare".into(), threshold: 0.338, retrigger_s: 0.0,  active: true, hysteresis_enabled: false, hysteresis: 0.02, trigger_hold_enabled: false, trigger_hold_s: 0.05 },
+                DetectorCfg { name: "rythm".into(), threshold: 0.45,  retrigger_s: 0.12, active: true, hysteresis_enabled: false, hysteresis: 0.02, trigger_hold_enabled: false, trigger_hold_s: 0.08 },
             ],
             control: ControlCfg::default(),
             osc: OscCfg::default(),
