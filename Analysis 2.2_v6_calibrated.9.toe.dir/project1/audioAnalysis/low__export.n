@@ -1,6 +1,0 @@
-DAT:table
-tile 2900 767 254 98
-flags =  viewer 1 showDocked off parlanguage 0
-color 0.55 0.55 0.55 
-dock low_
-end

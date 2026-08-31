@@ -1,9 +1,0 @@
-CHOP:out
-tile 341 191 118 58
-flags =  viewer 1 parlanguage 0
-inputs
-{
-0 	val
-}
-color 0.55 0.55 0.55 
-end

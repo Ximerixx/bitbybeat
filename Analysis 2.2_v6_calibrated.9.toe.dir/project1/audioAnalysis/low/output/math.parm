@@ -1,8 +1,0 @@
-?
-pageindex 0 2
-fromrange1 49 0 parent().par.Rangelow1
-fromrange2 49 1 parent().par.Rangehigh1
-torange1 34 0
-torange2 34 1
-autoexportroot 0 ""
-?

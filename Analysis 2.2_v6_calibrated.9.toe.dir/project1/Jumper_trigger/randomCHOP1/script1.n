@@ -1,6 +1,0 @@
-CHOP:script
-tile 150 -150 130 90
-flags =  viewer 1 parlanguage 0
-color 0.55 0.55 0.55 
-view -1 5 -1 1 0.034375 -1.5 1.5 4 2 8600 1 0 0
-end

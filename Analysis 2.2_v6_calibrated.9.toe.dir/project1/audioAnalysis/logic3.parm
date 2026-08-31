@@ -1,5 +1,0 @@
-?
-convert 0 nonzero
-timeslice 0 on
-autoexportroot 17 "" me.parent()
-?

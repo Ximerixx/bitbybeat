@@ -1,8 +1,0 @@
-?
-pageindex 0 7
-fromop 17 "" me.parent()
-op 0 unmap
-pars 0 Value1
-onpulse 0 off
-defaultreadencoding 0 cp1252
-?

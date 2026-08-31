@@ -1,7 +1,0 @@
-?
-pageindex 0 1
-wavetype 0 ramp
-amp 0 50
-combine 0 append
-autoexportroot 17 "" me.parent()
-?

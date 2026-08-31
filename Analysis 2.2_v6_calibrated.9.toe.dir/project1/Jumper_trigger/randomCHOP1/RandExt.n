@@ -1,7 +1,0 @@
-DAT:text
-tags 0 1 TDExtension
-tile -25 -25 130 90
-flags =  viewer 1 parlanguage 0
-color 0.55 0.55 0.55 
-view -1 8 0 1 1 1 0 -2.60491 0 0 1 1 0
-end

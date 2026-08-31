@@ -1,5 +1,0 @@
-COMP:container
-tile 528 85 144 130
-flags =  picked on current on viewer 1 render on parlanguage 0
-color 0.56 0.56 0.56 
-end

@@ -1,7 +1,0 @@
-DAT:text
-tile -150 550 406 179
-flags =  viewer 1 showDocked off parlanguage 0
-color 0.55 0.55 0.55 
-dock audiovst
-view -1 8 0 1 1 1 0 0 0 0 1 1 0
-end

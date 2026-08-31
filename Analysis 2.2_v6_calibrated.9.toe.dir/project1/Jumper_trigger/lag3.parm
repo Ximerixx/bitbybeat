@@ -1,8 +1,0 @@
-?
-lag1 17 0.2 op('LAG')['Lagfloat2']
-lag2 17 0.2 op('LAG')['Lagfloat2']
-overshoot1 49 0 op('lag_Overshoot')['onTrigger']
-overshoot2 49 0 op('lag_Overshoot')['onTrigger']
-snap 0 off
-timeslice 0 on
-?

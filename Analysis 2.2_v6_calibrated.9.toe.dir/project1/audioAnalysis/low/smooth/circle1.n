@@ -1,5 +1,0 @@
-TOP:circle
-tile 444 388 113 105
-flags =  viewer 1 activate on parlanguage 0
-color 0.55 0.55 0.55 
-end

@@ -1,7 +1,0 @@
-DAT:text
-tile 553 -154 155 128
-flags =  current on viewer 1 parlanguage 0
-color 0.55 0.55 0.55 
-dock script_export
-view -1 8 0 1 1 1 0 0 0 0 1 1 0
-end

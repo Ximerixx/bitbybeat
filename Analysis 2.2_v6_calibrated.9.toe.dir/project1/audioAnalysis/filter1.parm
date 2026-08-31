@@ -1,8 +1,0 @@
-?
-pageindex 0 1
-width 49 1 parent().par.Lowsmooth
-spike 0 0.1
-speedcoeff 0 0
-timeslice 0 on
-autoexportroot 17 "" me.parent()
-?

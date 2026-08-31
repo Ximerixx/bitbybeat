@@ -1,6 +1,0 @@
-?
-pageindex 0 1
-chopop 0 add
-gain 17 1 op('par1')['Audiofloat']
-postoff 17 0 op('limit2')['onTrigger']
-?

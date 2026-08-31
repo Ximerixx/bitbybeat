@@ -1,9 +1,0 @@
-CHOP:select
-tile 1575 -775 130 90
-flags =  viewer 1 parlanguage 0
-inputs
-{
-0 	Count_Analysis1/out1
-}
-color 0.55 0.55 0.55 
-end

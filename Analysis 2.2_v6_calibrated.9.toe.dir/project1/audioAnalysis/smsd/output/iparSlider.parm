@@ -1,4 +1,0 @@
-?
-pageindex 0 4
-Flip 67108977 off "not ((parent().par.Horizvert == 'horizontal') or ((parent().par.Horizvert == 'auto') and (parent().width >= parent().height)))"
-?

@@ -1,6 +1,0 @@
-?
-pageindex 0 2
-expr 0 parent().par.Help
-rowindexend 17 0 "me.inputs[0].numRows - 1"
-colindexend 17 0 "me.inputs[0].numCols - 1"
-?

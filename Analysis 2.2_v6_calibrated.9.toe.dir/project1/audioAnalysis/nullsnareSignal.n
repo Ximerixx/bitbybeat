@@ -1,9 +1,0 @@
-CHOP:null
-tile 2605 -315 151 90
-flags =  viewer 1 export on parlanguage 0
-inputs
-{
-0 	logic2
-}
-color 0.55 0.55 0.55 
-end

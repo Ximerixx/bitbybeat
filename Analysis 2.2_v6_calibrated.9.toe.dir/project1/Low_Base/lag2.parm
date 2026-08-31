@@ -1,6 +1,0 @@
-?
-lag1 0 0.1
-lag2 17 0.24 op('math8')['kick']
-snap 0 off
-timeslice 0 on
-?

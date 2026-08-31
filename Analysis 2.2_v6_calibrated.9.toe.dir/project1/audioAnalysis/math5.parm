@@ -1,6 +1,0 @@
-?
-pageindex 0 1
-preoff 49 0 -parent().par.Highthresh
-gain 49 1 parent().par.Highgain
-autoexportroot 17 "" me.parent()
-?

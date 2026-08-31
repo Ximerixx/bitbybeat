@@ -1,6 +1,0 @@
-?
-parameters 0 "Value1 Default1"
-builtin 0 on
-renameto 49 v1 parent().par.Name1
-autoexportroot 17 "" me.parent()
-?

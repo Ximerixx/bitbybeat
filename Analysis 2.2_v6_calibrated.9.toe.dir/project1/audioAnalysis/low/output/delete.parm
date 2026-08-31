@@ -1,9 +1,0 @@
-?
-delchannels 0 on
-discard 0 nonscoped
-select 0 bynum
-delscope 0 Default1
-selnumbers 0 0
-legacypattern 0 on
-autoexportroot 17 "" me.parent()
-?

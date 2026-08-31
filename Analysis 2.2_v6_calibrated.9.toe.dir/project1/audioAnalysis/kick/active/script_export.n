@@ -1,5 +1,0 @@
-DAT:script
-tile 206 -115 128 90
-flags =  viewer 1 export on parlanguage 0
-color 0.55 0.55 0.55 
-end

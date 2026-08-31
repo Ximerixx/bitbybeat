@@ -1,7 +1,0 @@
-?
-ops 0 "low mid high kick snare rythm smsd fmsd spectralCentroid"
-parameters 0 Output
-renamefrom 0 *:Output
-renameto 0 *
-autoexportroot 17 "" me.parent()
-?

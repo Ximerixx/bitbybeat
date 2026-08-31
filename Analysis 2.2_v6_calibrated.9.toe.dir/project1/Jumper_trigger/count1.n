@@ -1,9 +1,0 @@
-CHOP:count
-tile 2325 2175 130 90
-flags =  viewer 1 parlanguage 0
-inputs
-{
-0 	rename2
-}
-color 0.55 0.55 0.55 
-end

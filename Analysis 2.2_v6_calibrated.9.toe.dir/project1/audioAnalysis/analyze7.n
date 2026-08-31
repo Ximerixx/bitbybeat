@@ -1,9 +1,0 @@
-CHOP:analyze
-tile 2180 -1295 130 90
-flags =  viewer 1 parlanguage 0
-inputs
-{
-0 	audiospecpt3
-}
-color 0.55 0.55 0.55 
-end

@@ -1,9 +1,0 @@
-CHOP:math
-tile 2525 2200 100 60
-flags =  viewer 1 parlanguage 0
-inputs
-{
-0 	count1
-}
-color 0.55 0.55 0.55 
-end

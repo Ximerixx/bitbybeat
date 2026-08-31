@@ -1,5 +1,0 @@
-CHOP:constant
-tile 2675 65 130 90
-flags =  viewer 1 parlanguage 0
-color 0.55 0.55 0.55 
-end

@@ -1,7 +1,0 @@
-?
-pageindex 0 1
-chopop 0 add
-preoff 48 0 op('math4')['low']
-gain 49 1.013 "op('math2').par.torange2 / op('math3')['Audiofloat'] if parent().par.Audiofloat > 0 else 0"
-postoff 49 0 op('math2')['chan1']
-?

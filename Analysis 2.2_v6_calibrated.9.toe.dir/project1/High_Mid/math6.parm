@@ -1,6 +1,0 @@
-?
-pageindex 0 1
-gain 515 0 parent().par.Snaregain
-torange1 48 0 op('par1')['Defaultlag']
-torange2 32 1
-?

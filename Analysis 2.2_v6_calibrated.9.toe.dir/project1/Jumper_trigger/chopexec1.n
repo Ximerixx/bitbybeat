@@ -1,6 +1,0 @@
-DAT:chopexec
-tile 3300 2280 111 91
-flags =  viewer 1 activate on parlanguage 0
-color 0.55 0.55 0.55 
-view -1 8 0 1 1 1 0 -4.49526 0 0 1 1 0
-end

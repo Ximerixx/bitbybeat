@@ -1,9 +1,0 @@
-DAT:reorder
-tile 4485 85 130 90
-flags =  viewer 1 parlanguage 0
-inputs
-{
-0 	map
-}
-color 0.55 0.55 0.55 
-end

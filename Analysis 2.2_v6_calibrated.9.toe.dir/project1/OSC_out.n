@@ -1,9 +1,0 @@
-CHOP:oscout
-tile 2350 -1100 663 753
-flags =  viewer 1 parlanguage 0
-inputs
-{
-0 	timeslice1
-}
-color 0.67 0.67 0.67 
-end

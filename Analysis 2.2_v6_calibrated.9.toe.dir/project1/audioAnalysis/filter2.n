@@ -1,9 +1,0 @@
-CHOP:filter
-tile 2555 505 130 90
-flags =  viewer 1 parlanguage 0
-inputs
-{
-0 	addMid
-}
-color 0.55 0.55 0.55 
-end

@@ -1,6 +1,0 @@
-?
-lag1 0 0
-lag2 17 1 op('par1')['Triggerlag']
-snap 0 off
-timeslice 0 on
-?

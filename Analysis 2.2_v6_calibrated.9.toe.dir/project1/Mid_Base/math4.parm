@@ -1,5 +1,0 @@
-?
-pageindex 0 2
-torange1 17 0.2 op('par1')['Defaultlag']
-torange2 17 1 3*op('par1')['Defaultlag']
-?

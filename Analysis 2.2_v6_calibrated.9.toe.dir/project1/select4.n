@@ -1,9 +1,0 @@
-CHOP:select
-tile 925 500 559 269
-flags =  parlanguage 0
-inputs
-{
-0 	audioAnalysis/out1
-}
-color 0.55 0.55 0.55 
-end

@@ -1,9 +1,0 @@
-CHOP:express
-tile -1050 -1800 127 94
-flags =  viewer 1
-inputs
-{
-0 	count8s
-}
-color 0.55 0.55 0.55 
-end

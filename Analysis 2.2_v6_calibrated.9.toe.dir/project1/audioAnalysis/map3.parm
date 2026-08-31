@@ -1,5 +1,0 @@
-?
-method 0 replacenames
-before 0 "src dest"
-after 0 "dest src"
-?
