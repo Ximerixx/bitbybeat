@@ -179,13 +179,35 @@ pub fn open_on_right_click(response: &egui::Response, id: ProbeId, slot: &mut Op
 }
 
 pub fn lupa_button(ui: &mut egui::Ui, id: ProbeId, slot: &mut Option<ProbeId>) {
-    if ui
-        .small_button("лупа")
-        .on_hover_text("график входа/выхода по времени")
+    if lupa_icon_button(ui)
+        .on_hover_text("лупа: график входа/выхода по времени")
         .clicked()
     {
         *slot = Some(id);
     }
+}
+
+fn lupa_icon_button(ui: &mut egui::Ui) -> egui::Response {
+    let side = ui.spacing().interact_size.y.min(22.0);
+    let (rect, response) = ui.allocate_exact_size(egui::vec2(side, side), egui::Sense::click());
+    let vis = ui.style().interact(&response);
+    let painter = ui.painter();
+    painter.rect_filled(rect.shrink(1.0), 3.0, vis.weak_bg_fill);
+    painter.rect_stroke(rect.shrink(1.0), 3.0, vis.bg_stroke);
+
+    let glass_c = rect.center() + egui::vec2(-1.5, -1.5);
+    let glass_r = side * 0.18;
+    let ink = vis.text_color();
+    painter.circle_stroke(glass_c, glass_r, egui::Stroke::new(1.5, ink));
+    let dir = egui::vec2(0.72, 0.72);
+    painter.line_segment(
+        [
+            glass_c + dir * glass_r,
+            glass_c + dir * (glass_r + side * 0.16),
+        ],
+        egui::Stroke::new(1.7, ink),
+    );
+    response
 }
 
 /// Блок маппера + ПКМ / кнопка лупа. Возвращает, менялся ли конфиг.
