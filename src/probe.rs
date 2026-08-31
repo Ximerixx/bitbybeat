@@ -556,14 +556,13 @@ fn close_probe(slot: &mut Option<ProbeId>, entered: &mut bool) {
     *entered = false;
 }
 
-/// Лупа: сверху вход, в центре крутилки, снизу выход.
-/// Крестик / Esc всегда закрывают. Уход курсора - только после того, как курсор уже был внутри.
+/// Лупа: сверху вход, в центре крутилки, снизу выход. Обычное окно (крестик / Esc).
 pub fn popup(ctx: &egui::Context, ui_state: ProbeUi<'_>, cfg: &mut Config) -> bool {
     let Some(id) = *ui_state.slot else { return false };
     let (vin, vout) = live(id, ui_state.metrics, cfg);
     let mut dirty = false;
     let mut open = true;
-    let inner = egui::Window::new(id.title())
+    let _inner = egui::Window::new(id.title())
         .open(&mut open)
         .collapsible(false)
         .resizable(true)
@@ -573,20 +572,21 @@ pub fn popup(ctx: &egui::Context, ui_state: ProbeUi<'_>, cfg: &mut Config) -> bo
             ui.separator();
             dirty |= knobs_for(ui, id, cfg, ui_state.metrics);
             ui.separator();
-            ui.weak("кнопка лупа или ПКМ по блоку. Esc / крестик - закрыть.");
+            ui.weak("кнопка лупа или ПКМ по блоку. закрыть крестиком или Esc.");
         });
     if !open || ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
         close_probe(ui_state.slot, ui_state.entered);
         return dirty;
     }
-    let hovered = inner.as_ref().is_some_and(|i| i.response.hovered() || i.response.contains_pointer());
-    if hovered {
-        *ui_state.entered = true;
-    }
-    let dragging = ctx.input(|i| i.pointer.any_down());
-    if *ui_state.entered && !hovered && !dragging {
-        close_probe(ui_state.slot, ui_state.entered);
-    }
+    // самозакрытие когда мышь ушла из окна — выкл, пусть висит как обычное
+    // let hovered = _inner.as_ref().is_some_and(|i| i.response.hovered() || i.response.contains_pointer());
+    // if hovered {
+    //     *ui_state.entered = true;
+    // }
+    // let dragging = ctx.input(|i| i.pointer.any_down());
+    // if *ui_state.entered && !hovered && !dragging {
+    //     close_probe(ui_state.slot, ui_state.entered);
+    // }
     dirty
 }
 
