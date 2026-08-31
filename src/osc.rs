@@ -1,19 +1,19 @@
-//! OSC-выход: один bundle на тик, meta seq/time, без нулевых триггеров.
+//! OSC-выход: один bundle на тик. UDP — send_to без connect (как в alpha / QLC+).
 
-use crate::config::{OscCfg, OscPhaseCfg};
+use crate::config::OscCfg;
 use crate::diag;
 use crate::osc_map::{channels_for_send, is_trigger_address, OscSnapshot, TriggerPulse};
 use crate::shared::Shared;
 use anyhow::{Context, Result};
 use rosc::{encoder, OscBundle, OscMessage, OscPacket, OscTime, OscType};
 use std::io::Write;
-use std::net::{TcpStream, ToSocketAddrs, UdpSocket};
+use std::net::{SocketAddr, TcpStream, ToSocketAddrs, UdpSocket};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant};
 
 enum Transport {
-    Udp(UdpSocket),
+    Udp { socket: UdpSocket, dest: SocketAddr },
     Tcp(TcpStream),
 }
 
@@ -27,8 +27,9 @@ impl OscSender {
         match cfg.transport {
             crate::config::OscTransport::Udp => {
                 let socket = UdpSocket::bind("0.0.0.0:0").context("OSC UDP bind")?;
-                socket.connect(&addr).context("OSC UDP connect")?;
-                Ok(Self { transport: Transport::Udp(socket) })
+                Ok(Self {
+                    transport: Transport::Udp { socket, dest: addr },
+                })
             }
             crate::config::OscTransport::Tcp => {
                 let stream = TcpStream::connect(&addr).context("OSC TCP connect")?;
@@ -40,8 +41,8 @@ impl OscSender {
 
     fn send_raw(&mut self, buf: &[u8]) -> Result<()> {
         match &mut self.transport {
-            Transport::Udp(s) => {
-                s.send(buf)?;
+            Transport::Udp { socket, dest } => {
+                socket.send_to(buf, *dest)?;
             }
             Transport::Tcp(s) => {
                 let len = (buf.len() as u32).to_be_bytes();
@@ -66,13 +67,6 @@ impl OscSender {
 fn resolve(host: &str, port: u16) -> Result<std::net::SocketAddr> {
     let mut addrs = (host, port).to_socket_addrs().context("OSC resolve")?;
     addrs.next().context("OSC: no addresses")
-}
-
-fn wall_osc_time() -> OscTime {
-    let dur = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default();
-    let secs = dur.as_secs() as u32;
-    let frac = ((dur.subsec_nanos() as u64) << 32) / 1_000_000_000;
-    OscTime::from((secs, frac as u32))
 }
 
 fn quantize_phase(phase: f32, grid: f32) -> f32 {
@@ -103,43 +97,42 @@ fn osc_float(addr: &str, v: f32) -> OscPacket {
 fn build_bundle_packets(
     snapshot: &OscSnapshot,
     pending: &mut Vec<TriggerPulse>,
-    phase_cfg: &OscPhaseCfg,
+    osc: &OscCfg,
     bundle_seq: u64,
     send_mono: f64,
-    include_meta: bool,
-    clip_levels: bool,
 ) -> Vec<OscPacket> {
     let mut packets = Vec::new();
     let frame_id = snapshot.frame_id;
+    let phase_cfg = &osc.phase;
 
-    if include_meta {
+    if osc.bundle_meta {
         packets.push(osc_msg("bundleSeq", vec![OscType::Int(bundle_seq as i32)]));
         packets.push(osc_float("bundleTime", snapshot.t_mono as f32));
         packets.push(osc_msg("bundleFrame", vec![OscType::Int(frame_id as i32)]));
         packets.push(osc_float("bundleSendTime", send_mono as f32));
     }
 
-    for (addr, val) in channels_for_send(&snapshot.channels, clip_levels) {
-        packets.push(osc_float(&addr, val));
+    let sent = channels_for_send(&snapshot.channels, osc);
+    let mut already: std::collections::HashMap<String, f32> = std::collections::HashMap::new();
+    for (addr, val) in &sent {
+        packets.push(osc_float(addr, *val));
+        already.insert(addr.clone(), *val);
     }
 
     pending.retain(|p| {
-        if p.frame_id < frame_id {
-            diag::debug(
-                "osc",
-                format!(
-                    "drop stale pulse {} frame {} < {frame_id}",
-                    p.address, p.frame_id
-                ),
-            );
+        if !osc.sends(p.address) {
             return false;
         }
-        if phase_cfg.quantize_triggers {
+        if phase_cfg.quantize_triggers && !phase_cfg.immediate_triggers {
             let q = quantize_phase(p.phase, phase_cfg.phase_grid);
             let cur = quantize_phase(snapshot.beat_phase, phase_cfg.phase_grid);
             if (q - cur).abs() > phase_cfg.phase_grid * 0.51 {
                 return true;
             }
+        }
+        // Не дублировать адрес, если канал этого тика уже несёт 1.
+        if already.get(p.address).copied().unwrap_or(0.0) > 0.5 {
+            return false;
         }
         if is_trigger_address(p.address) {
             packets.push(osc_float(p.address, 1.0));
@@ -211,18 +204,19 @@ fn run(shared: Arc<Shared>) {
                 shared.metrics.set_osc_send_latency(send_latency_ms);
 
                 pending_triggers.extend(shared.trigger_queue.drain());
-                pending_triggers.extend(snapshot.pulses.iter().cloned());
+                if osc.phase.immediate_triggers {
+                    pending_triggers.extend(snapshot.pulses.iter().cloned());
+                }
 
                 let seq = bundle_seq.fetch_add(1, Ordering::Relaxed) + 1;
-                let timetag = wall_osc_time();
+                // OSC immediate: QLC+ (и alpha) ждут (0, 1), не wall-clock NTP.
+                let timetag = OscTime::from((0u32, 1u32));
                 let packets = build_bundle_packets(
                     &snapshot,
                     &mut pending_triggers,
-                    &osc.phase,
+                    osc,
                     seq,
                     send_mono,
-                    osc.bundle_meta,
-                    osc.clip_levels_at_zero,
                 );
 
                 if !packets.is_empty() {

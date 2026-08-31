@@ -5,6 +5,7 @@
 //! крутилки. Lag ([`LagCfg`]) — без bypass и stateful (состояние живёт в DSP, не тут).
 
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 
 fn default_compute_rate() -> f32 { 120.0 }
 fn default_osc_rate() -> f32 { 60.0 }
@@ -297,12 +298,33 @@ pub struct OscCfg {
     pub transport: OscTransport,
     #[serde(default)]
     pub phase: OscPhaseCfg,
-    /// Включать `/bundleSeq` и `/bundleTime` в каждый bundle.
-    #[serde(default = "default_true")]
+    /// Включать `/bundleSeq` и `/bundleTime` в каждый bundle (QLC+ лучше без meta).
+    #[serde(default)]
     pub bundle_meta: bool,
     /// На OSC: low/mid/high не ниже 0 (внутренняя математика без изменений).
     #[serde(default)]
     pub clip_levels_at_zero: bool,
+    /// Какие адреса слать. Нет ключа = включён (старые пресеты без поля).
+    #[serde(default)]
+    pub send_channels: BTreeMap<String, bool>,
+}
+impl OscCfg {
+    pub fn sends(&self, addr: &str) -> bool {
+        self.send_channels.get(addr).copied().unwrap_or(true)
+    }
+
+    pub fn set_sends(&mut self, addr: &str, on: bool) {
+        self.send_channels.insert(addr.to_string(), on);
+    }
+
+    /// Явно прописать все известные адреса — иначе в файле пресета пустой `{}` и кажется, что ничего не сохранилось.
+    pub fn normalize_known(&mut self, known: &[(&str, &str)]) {
+        let mut next = BTreeMap::new();
+        for (addr, _) in known {
+            next.insert((*addr).to_string(), self.sends(addr));
+        }
+        self.send_channels = next;
+    }
 }
 impl Default for OscCfg {
     fn default() -> Self {
@@ -313,8 +335,9 @@ impl Default for OscCfg {
             bundle: true,
             transport: OscTransport::Udp,
             phase: OscPhaseCfg::default(),
-            bundle_meta: true,
+            bundle_meta: false,
             clip_levels_at_zero: false,
+            send_channels: BTreeMap::new(),
         }
     }
 }

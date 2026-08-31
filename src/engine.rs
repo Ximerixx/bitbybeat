@@ -160,7 +160,7 @@ fn run(shared: Arc<Shared>) {
         let beat_phase = kick_counts.c4.phase();
 
         let dsp_rms = if cfg.dsp_rmspower {
-            rms_power(&frame) * cfg.dsp_gain.gain
+            cfg.dsp_gain.apply(rms_power(&frame))
         } else {
             0.0
         };
@@ -183,7 +183,11 @@ fn run(shared: Arc<Shared>) {
         };
 
         let snapshot = build_snapshot(&analysis, &cfg, &mut trigger_state);
-        let osc_channels = snapshot.channels.len();
+        let osc_channels = snapshot
+            .channels
+            .iter()
+            .filter(|c| cfg.osc.sends(&c.address))
+            .count();
         if !snapshot.pulses.is_empty() && !cfg.osc.phase.immediate_triggers {
             shared.trigger_queue.push(snapshot.pulses.clone());
         }
@@ -191,7 +195,7 @@ fn run(shared: Arc<Shared>) {
 
         let n = spectrum.mags.len().min(SPECTRUM_DRAW_BINS);
         let mut metrics = Metrics::default();
-        metrics.device_name = audio.as_ref().map(|a| a.device_name.clone()).unwrap_or_else(|| "—".into());
+        metrics.device_name = audio.as_ref().map(|a| a.device_name.clone()).unwrap_or_else(|| "-".into());
         metrics.sample_rate = sample_rate;
         metrics.input_rms = input_rms;
         metrics.band_levels = levels;

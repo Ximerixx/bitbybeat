@@ -1,12 +1,14 @@
 //! GUI на egui: тумблеры/крутилки всего тракта + метры/спектр (md_plans/10 R0/R5).
 
 use crate::audio;
-use crate::config::{GainCfg, OscTransport, SigmoidCfg, Source};
+use crate::config::{OscTransport, Source};
 use crate::diag::{self, format_time, LogLevel};
+use crate::osc_map::OSC_CHANNEL_LIST;
 use crate::preset::{autosave_path, AudioInputKey, UndoStack};
+use crate::probe::{self, ProbeHistory, ProbeId, ProbeUi};
 use crate::shared::{Metrics, Shared};
 use eframe::egui;
-use egui_plot::{Line, Plot, PlotPoints, Points};
+use egui_plot::{Line, Plot, PlotPoints};
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::Instant;
@@ -35,10 +37,17 @@ pub struct App {
     log_error: bool,
     osc_error_dialog: Option<String>,
     close_dialog: Option<CloseDialog>,
+    /// Разрешить закрыть окно даже с несохранённым пресетом.
+    allow_exit_dirty: bool,
     autosave_timer: Instant,
     display_metrics: Metrics,
     spectrum_plot: Vec<[f64; 2]>,
     spectrum_plot_frame: u64,
+    show_osc_channels: bool,
+    show_poster: bool,
+    probe: Option<ProbeId>,
+    probe_opened: Instant,
+    probe_hist: ProbeHistory,
 }
 
 impl App {
@@ -65,10 +74,16 @@ impl App {
             log_error: true,
             osc_error_dialog: None,
             close_dialog: None,
+            allow_exit_dirty: false,
             autosave_timer: Instant::now(),
             display_metrics: Metrics::default(),
             spectrum_plot: Vec::new(),
             spectrum_plot_frame: 0,
+            show_osc_channels: false,
+            show_poster: false,
+            probe: None,
+            probe_opened: Instant::now(),
+            probe_hist: ProbeHistory::new(),
         }
     }
 
@@ -103,6 +118,17 @@ impl App {
         self.saved_baseline = self.cfg_edit.clone();
     }
 
+    fn save_preset_file(&mut self) -> String {
+        self.cfg_edit.osc.normalize_known(OSC_CHANNEL_LIST);
+        match self.cfg_edit.save_ron(&self.preset_path) {
+            Ok(_) => {
+                self.mark_saved_baseline();
+                format!("сохранено -> {}", self.preset_path)
+            }
+            Err(e) => format!("ошибка записи: {e}"),
+        }
+    }
+
     fn try_autosave(&mut self, dt: f32) {
         if !self.preset_dirty() {
             return;
@@ -111,10 +137,11 @@ impl App {
             return;
         }
         let path = autosave_path(&self.preset_path);
+        self.cfg_edit.osc.normalize_known(OSC_CHANNEL_LIST);
         if let Err(e) = self.cfg_edit.save_ron(path.to_string_lossy().as_ref()) {
             diag::warn("app", format!("autosave: {e}"));
         } else {
-            diag::info("app", format!("autosave → {}", path.display()));
+            diag::info("app", format!("autosave -> {}", path.display()));
             self.autosave_timer = Instant::now();
         }
         let _ = dt;
@@ -144,7 +171,7 @@ impl App {
     }
 }
 
-/// Большая «лампа» — квадрат, светящийся по значению 0..1 (md_plans/10: индикаторы kick/snare/rythm).
+/// Большая "лампа" - квадрат, светящийся по значению 0..1 (md_plans/10: индикаторы kick/snare/rythm).
 fn lamp(ui: &mut egui::Ui, label: &str, on: f32, color: egui::Color32) {
     let size = egui::vec2(84.0, 84.0);
     let (rect, _) = ui.allocate_exact_size(size, egui::Sense::hover());
@@ -166,104 +193,6 @@ fn lamp(ui: &mut egui::Ui, label: &str, on: f32, color: egui::Color32) {
     );
 }
 
-/// Крутилки маппера (Math CHOP): x' = (x + preoff)·gain + postoff, затем опц. remap в torange.
-fn gain_ui(ui: &mut egui::Ui, label: &str, g: &mut GainCfg) {
-    ui.horizontal(|ui| {
-        ui.label(label);
-        ui.add(egui::DragValue::new(&mut g.preoff).speed(0.01).prefix("pre "))
-            .on_hover_text("pre-offset: прибавляется к входу ДО умножения");
-        ui.add(egui::DragValue::new(&mut g.gain).speed(0.01).prefix("×"))
-            .on_hover_text("множитель сигнала (gain)");
-        ui.add(egui::DragValue::new(&mut g.postoff).speed(0.01).prefix("post "))
-            .on_hover_text("post-offset: прибавляется ПОСЛЕ умножения");
-        if let Some((lo, hi)) = g.torange.as_mut() {
-            ui.add(egui::DragValue::new(lo).speed(0.01).prefix("→lo "))
-                .on_hover_text("нижняя граница выходного диапазона (remap 0..1 → lo..hi)");
-            ui.add(egui::DragValue::new(hi).speed(0.01).prefix("→hi "))
-                .on_hover_text("верхняя граница выходного диапазона");
-        }
-    });
-}
-
-/// Отрисовать кривую сигмоиды + две точки: вход x (пришло) и выход eval(x) (ушло/примагнитилось).
-fn sigmoid_plot(ui: &mut egui::Ui, id: &str, s: &SigmoidCfg, live_x: Option<f32>, height: f32) {
-    let xmax = (s.center * 2.0)
-        .max(1.0)
-        .max(live_x.unwrap_or(0.0) * 1.15)
-        .max(0.5) as f64;
-    let curve: PlotPoints = (0..=200)
-        .map(|i| {
-            let x = xmax * i as f64 / 200.0;
-            [x, s.eval(x as f32) as f64]
-        })
-        .collect();
-    Plot::new(id)
-        .height(height)
-        .include_y(0.0)
-        .show(ui, |p| {
-            p.line(Line::new(curve).name("сигмоида"));
-            if let Some(x) = live_x {
-                let y = s.eval(x);
-                p.points(
-                    Points::new(vec![[x as f64, 0.0]])
-                        .radius(4.0_f32)
-                        .color(egui::Color32::LIGHT_BLUE)
-                        .name("вход x (пришло)"),
-                );
-                p.points(
-                    Points::new(vec![[x as f64, y as f64]])
-                        .radius(6.0_f32)
-                        .color(egui::Color32::YELLOW)
-                        .name("выход (порог)"),
-                );
-            }
-        });
-}
-
-/// Компактный редактор сигмоиды (в общей колонке).
-fn sigmoid_ctrl(ui: &mut egui::Ui, label: &str, s: &mut SigmoidCfg, live_x: Option<f32>, open_win: &mut bool) {
-    ui.group(|ui| {
-        ui.horizontal(|ui| {
-            ui.checkbox(&mut s.enabled, "")
-                .on_hover_text("вкл — сигмоида; выкл — значение проходит линейно (как есть)");
-            ui.strong(label);
-            if ui.small_button("⧉ окно").on_hover_text("открыть в отдельном окне с большим графиком").clicked() {
-                *open_win = true;
-            }
-        });
-        sigmoid_params(ui, s);
-        sigmoid_plot(ui, label, s, live_x, 90.0);
-    });
-}
-
-/// Ряд крутилок сигмоиды с подсказками.
-fn sigmoid_params(ui: &mut egui::Ui, s: &mut SigmoidCfg) {
-    ui.horizontal(|ui| {
-        ui.add(egui::DragValue::new(&mut s.ceil).speed(0.01).prefix("ceil "))
-            .on_hover_text("потолок: максимум выхода кривой");
-        ui.add(egui::DragValue::new(&mut s.center).speed(0.05).prefix("c "))
-            .on_hover_text("центр: значение входа, где кривая на половине высоты");
-        let a = ui.checkbox(&mut s.asymmetric, "асимм")
-            .on_hover_text("раздельная крутизна левой и правой половины относительно центра");
-        // при включении сеем половины из общей k — стартуем от текущей симметричной кривой
-        if a.changed() && s.asymmetric {
-            s.k_left = s.k;
-            s.k_right = s.k;
-        }
-    });
-    ui.horizontal(|ui| {
-        if s.asymmetric {
-            ui.add(egui::DragValue::new(&mut s.k_left).speed(0.01).prefix("◄k "))
-                .on_hover_text("крутизна левой половины (x < центра): круче → резче вход снизу");
-            ui.add(egui::DragValue::new(&mut s.k_right).speed(0.01).prefix("k► "))
-                .on_hover_text("крутизна правой половины (x > центра): круче → резче насыщение сверху");
-        } else {
-            ui.add(egui::DragValue::new(&mut s.k).speed(0.01).prefix("k "))
-                .on_hover_text("общая крутизна: больше → резче переход");
-        }
-    });
-}
-
 fn meter(ui: &mut egui::Ui, label: &str, v: f32, max: f32) {
     ui.horizontal(|ui| {
         ui.label(format!("{label}: {v:6.3}"));
@@ -278,8 +207,8 @@ fn band_gain_ui(ui: &mut egui::Ui, manual: &mut f32, live: f32, adaptive_on: boo
         if adaptive_on {
             let base = *manual;
             ui.add_enabled(false, egui::Slider::new(manual, 0.0..=10.0).text(format!("база {base:.2}")))
-                .on_hover_text("базовый gain из пресета (при адаптиве не используется)");
-            ui.label("→");
+                .on_hover_text("значение из пресета. Сейчас его подменяет адаптив");
+            ui.label("->");
             ui.colored_label(egui::Color32::from_rgb(255, 210, 80), format!("{live:.2}"));
             let frac = (live / 10.0).clamp(0.0, 1.0);
             ui.add(
@@ -288,7 +217,8 @@ fn band_gain_ui(ui: &mut egui::Ui, manual: &mut f32, live: f32, adaptive_on: boo
                     .desired_width(72.0),
             );
         } else {
-            ui.add(egui::Slider::new(manual, 0.0..=10.0).text("gain"));
+            ui.add(egui::Slider::new(manual, 0.0..=10.0).text("крутизна после порога"))
+                .on_hover_text("после вычитания порога: больше - полоса громче в OSC и легче срабатывает детектор");
         }
     });
 }
@@ -315,7 +245,7 @@ fn latency_budget_ui(
         } else {
             egui::Color32::GREEN
         };
-        ui.colored_label(ring_c, "● ring");
+        ui.colored_label(ring_c, "* ring");
         let cmp_c = if compute_ms > 12.0 {
             egui::Color32::RED
         } else if compute_ms > 8.0 {
@@ -323,7 +253,7 @@ fn latency_budget_ui(
         } else {
             egui::Color32::GREEN
         };
-        ui.colored_label(cmp_c, "● compute");
+        ui.colored_label(cmp_c, "* compute");
         let jit_c = if osc_jitter_ms > 3.0 {
             egui::Color32::RED
         } else if osc_jitter_ms > 1.0 {
@@ -331,7 +261,7 @@ fn latency_budget_ui(
         } else {
             egui::Color32::GREEN
         };
-        ui.colored_label(jit_c, "● osc");
+        ui.colored_label(jit_c, "* osc");
     });
 }
 
@@ -347,7 +277,7 @@ fn restart_button(ui: &mut egui::Ui, pending: bool) -> egui::Response {
         });
     }
     ui.add(btn).on_hover_text(if pending {
-        "источник изменён — нажми, чтобы переподключить аудио"
+        "источник изменён - нажми, чтобы переподключить аудио"
     } else {
         "переподключить аудио с текущими настройками"
     })
@@ -396,10 +326,73 @@ fn console_window(app: &mut App, ctx: &egui::Context) {
     app.show_console = open;
 }
 
+fn osc_channels_window(app: &mut App, ctx: &egui::Context) {
+    let mut open = app.show_osc_channels;
+    let mut dirty = false;
+    let mut do_save = false;
+    let enabled_n = OSC_CHANNEL_LIST
+        .iter()
+        .filter(|(addr, _)| app.cfg_edit.osc.sends(addr))
+        .count();
+    egui::Window::new("OSC-каналы")
+        .open(&mut open)
+        .default_size([420.0, 560.0])
+        .resizable(true)
+        .show(ctx, |ui| {
+            ui.label(format!(
+                "Включено {enabled_n} из {}. Выкл - адрес не уходит в QLC.",
+                OSC_CHANNEL_LIST.len()
+            ));
+            ui.weak(format!(
+                "В файл попадает по кнопке сохранить пресет -> {}. Автосейв ({}) при старте не читается.",
+                app.preset_path,
+                autosave_path(&app.preset_path).display()
+            ));
+            ui.horizontal(|ui| {
+                if ui.button("все вкл").clicked() {
+                    for (addr, _) in OSC_CHANNEL_LIST {
+                        app.cfg_edit.osc.set_sends(addr, true);
+                    }
+                    dirty = true;
+                }
+                if ui.button("все выкл").clicked() {
+                    for (addr, _) in OSC_CHANNEL_LIST {
+                        app.cfg_edit.osc.set_sends(addr, false);
+                    }
+                    dirty = true;
+                }
+                if ui.button("сохранить пресет").clicked() {
+                    do_save = true;
+                    dirty = true;
+                }
+            });
+            ui.separator();
+            egui::ScrollArea::vertical().show(ui, |ui| {
+                for (addr, hint) in OSC_CHANNEL_LIST {
+                    let mut on = app.cfg_edit.osc.sends(addr);
+                    ui.horizontal(|ui| {
+                        if ui.checkbox(&mut on, format!("/{addr}")).changed() {
+                            app.cfg_edit.osc.set_sends(addr, on);
+                            dirty = true;
+                        }
+                        ui.weak(*hint);
+                    });
+                }
+            });
+        });
+    app.show_osc_channels = open;
+    if do_save {
+        app.status = app.save_preset_file();
+    }
+    if dirty {
+        app.mark_dirty();
+    }
+}
+
 impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         if ctx.input(|i| i.viewport().close_requested()) {
-            if self.preset_dirty() {
+            if self.preset_dirty() && !self.allow_exit_dirty {
                 self.close_dialog = Some(CloseDialog::Ask);
                 ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
             }
@@ -448,17 +441,17 @@ impl eframe::App for App {
                     ui.label("Есть несохранённые изменения. Сохранить перед выходом?");
                     ui.horizontal(|ui| {
                         if ui.button("Сохранить").clicked() {
-                            match self.cfg_edit.save_ron(&self.preset_path) {
-                                Ok(_) => {
-                                    self.mark_saved_baseline();
-                                    self.status = "сохранено".into();
-                                    ctx.send_viewport_cmd(egui::ViewportCommand::Close);
-                                }
-                                Err(e) => self.status = format!("ошибка: {e}"),
+                            let msg = self.save_preset_file();
+                            if msg.starts_with("сохранено") {
+                                self.status = msg;
+                                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                            } else {
+                                self.status = msg;
                             }
                             self.close_dialog = None;
                         }
                         if ui.button("Выйти без сохранения").clicked() {
+                            self.allow_exit_dirty = true;
                             self.close_dialog = None;
                             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                         }
@@ -481,21 +474,29 @@ impl eframe::App for App {
             self.spectrum_plot_frame = self.display_metrics.compute_frame_id;
         }
         let m = self.display_metrics.clone();
+        self.probe_hist.push(&self.display_metrics);
+        let mut probe_hit: Option<ProbeId> = None;
         let preset_dirty = self.preset_dirty();
 
         egui::TopBottomPanel::top("toolbar").show(ctx, |ui| {
             ui.horizontal(|ui| {
-                if ui.button("📋 Консоль").clicked() {
+                if ui.button("Консоль").clicked() {
                     self.show_console = true;
                 }
+                if ui.button("OSC каналы").clicked() {
+                    self.show_osc_channels = true;
+                }
+                if ui.button("Схема").clicked() {
+                    self.show_poster = true;
+                }
                 ui.separator();
-                if ui.add_enabled(self.undo.can_undo(), egui::Button::new("↶ undo")).clicked() {
+                if ui.add_enabled(self.undo.can_undo(), egui::Button::new("undo")).clicked() {
                     if let Some(prev) = self.undo.undo(&self.cfg_edit) {
                         self.cfg_edit = prev;
                         self.mark_dirty();
                     }
                 }
-                if ui.add_enabled(self.undo.can_redo(), egui::Button::new("↷ redo")).clicked() {
+                if ui.add_enabled(self.undo.can_redo(), egui::Button::new("redo")).clicked() {
                     if let Some(next) = self.undo.redo(&self.cfg_edit) {
                         self.cfg_edit = next;
                         self.mark_dirty();
@@ -505,7 +506,7 @@ impl eframe::App for App {
                 if preset_dirty {
                     ui.colored_label(
                         egui::Color32::from_rgb(255, 200, 80),
-                        "● пресет изменён (не сохранён)",
+                        "* пресет изменён (не сохранён)",
                     );
                 }
                 ui.separator();
@@ -530,12 +531,16 @@ impl eframe::App for App {
         if self.show_console {
             console_window(self, ctx);
         }
+        if self.show_osc_channels {
+            osc_channels_window(self, ctx);
+        }
 
         // ─── Левая панель: вход + пресеты ───
         egui::SidePanel::left("left").resizable(true).default_width(320.0).show(ctx, |ui| {
             ui.heading("Вход / Источник");
             let mut panel_dirty = false;
             let mut do_restart = false;
+            let mut open_osc_channels = false;
             let audio_pending = self.audio_pending();
             {
             let cfg = &mut self.cfg_edit;
@@ -560,31 +565,31 @@ impl eframe::App for App {
             let cur_pulse = match &cfg.input.pulse_source {
                 Some(n) => self.pulse_sources.iter().find(|s| &s.name == n)
                     .map(|s| s.label().to_string()).unwrap_or_else(|| n.clone()),
-                None => "— нет (ALSA-устройство) —".into(),
+                None => "- нет (ALSA-устройство) -".into(),
             };
             egui::ComboBox::from_label("pulse source (monitor)")
                 .selected_text(cur_pulse)
                 .width(280.0)
                 .show_ui(ui, |ui| {
-                    ui.selectable_value(&mut cfg.input.pulse_source, None, "— нет (ALSA-устройство) —");
+                    ui.selectable_value(&mut cfg.input.pulse_source, None, "- нет (ALSA-устройство) -");
                     for s in &self.pulse_sources {
-                        let tag = if s.is_monitor { format!("🔁 {}", s.label()) } else { s.label().to_string() };
+                        let tag = if s.is_monitor { format!("[mon] {}", s.label()) } else { s.label().to_string() };
                         ui.selectable_value(&mut cfg.input.pulse_source, Some(s.name.clone()), tag);
                     }
                 })
                 .response
-                .on_hover_text("захват системного звука: выберите 🔁 monitor вашего выхода (через parec, без паник cpal)");
+                .on_hover_text("захват системного звука: выберите [mon] monitor вашего выхода (через parec, без паник cpal)");
 
-            let cur = cfg.input.device.clone().unwrap_or_else(|| "— default —".into());
+            let cur = cfg.input.device.clone().unwrap_or_else(|| "- default -".into());
             ui.add_enabled_ui(cfg.input.pulse_source.is_none(), |ui| {
                 egui::ComboBox::from_label("ALSA device")
                     .selected_text(cur)
                     .width(280.0)
                     .show_ui(ui, |ui| {
-                        ui.selectable_value(&mut cfg.input.device, None, "— default —");
+                        ui.selectable_value(&mut cfg.input.device, None, "- default -");
                         for d in &self.devices {
                             let base = format!("{} [{}ch]", d.name, d.channels);
-                            let tag = if audio::is_monitor(&d.name) { format!("🔁 {base}") } else { base };
+                            let tag = if audio::is_monitor(&d.name) { format!("[mon] {base}") } else { base };
                             ui.selectable_value(&mut cfg.input.device, Some(d.name.clone()), tag);
                         }
                     });
@@ -597,7 +602,7 @@ impl eframe::App for App {
                     None => 0,
                 };
                 if nch > 1 {
-                    ui.label(format!("каналы устройства: {nch} — выбери нужные (1–2)"));
+                    ui.label(format!("каналы устройства: {nch} - выбери нужные (1-2)"));
                     egui::ScrollArea::horizontal().max_height(64.0).show(ui, |ui| {
                         ui.horizontal_wrapped(|ui| {
                             for i in 0..nch as usize {
@@ -634,27 +639,37 @@ impl eframe::App for App {
 
             ui.separator();
             ui.heading("Пре-обработка");
-            ui.checkbox(&mut cfg.compressor.enabled, "компрессор (audiodyna)")
-                .on_hover_text("downward-компрессор входа; в эталоне был обойдён (dead node)");
+            ui.weak("Цепочка: устройство -> моно -> (компрессор) -> полосы / спектр / адаптив.");
+            ui.checkbox(&mut cfg.compressor.enabled, "компрессор на входе")
+                .on_hover_text("сжимает громкость всего сигнала до фильтров полос; выкл - сырой звук в анализ");
             if cfg.compressor.enabled {
                 let c = &mut cfg.compressor.cfg;
-                ui.add(egui::Slider::new(&mut c.threshold_db, -60.0..=0.0).text("thr dB"))
-                    .on_hover_text("порог: выше него сигнал сжимается");
-                ui.add(egui::Slider::new(&mut c.ratio, 0.05..=4.0).text("ratio"))
-                    .on_hover_text("коэффициент сжатия");
-                ui.add(egui::Slider::new(&mut c.makeup_db, -12.0..=24.0).text("makeup dB"))
-                    .on_hover_text("компенсация громкости после сжатия");
+                ui.add(egui::Slider::new(&mut c.threshold_db, -60.0..=0.0).text("порог, дБ"))
+                    .on_hover_text("тише порога не трогаем; громче - сжимаем");
+                ui.add(egui::Slider::new(&mut c.ratio, 0.05..=4.0).text("сжатие"))
+                    .on_hover_text("насколько давить пики (меньше 1 - сильнее компрессия в этой формуле)");
+                ui.add(egui::Slider::new(&mut c.makeup_db, -12.0..=24.0).text("компенсация, дБ"))
+                    .on_hover_text("громкость после сжатия, чтобы уровень не просел");
             }
-            ui.checkbox(&mut cfg.dsp_rmspower, "RMS-power во входную DSP-ветвь (R2)")
-                .on_hover_text("опциональная нода RMS в ветви анализа (вставляется по ситуации)");
-            gain_ui(ui, "DSP-гейн (math1)", &mut cfg.dsp_gain);
+            ui.checkbox(&mut cfg.dsp_rmspower, "считать /dsprms")
+                .on_hover_text("отдельный канал OSC: RMS всего кадра после компрессора. На полосы и детекторы не влияет");
+            if probe::mapper_ui(
+                ui,
+                "Громкость для /dsprms",
+                "вход: RMS всего кадра -> этот маппер -> OSC /dsprms. Полосы, kick/snare и адаптив сюда не смотрят.",
+                &mut cfg.dsp_gain,
+                ProbeId::DspRms,
+                &mut probe_hit,
+            ) {
+                panel_dirty = true;
+            }
 
             ui.separator();
             ui.heading("Частоты");
-            ui.add(egui::Slider::new(&mut cfg.compute_rate_hz, 30.0..=480.0).text("обсчёт, Гц"))
-                .on_hover_text("частота DSP/детекторов; выше = меньше задержка отклика (CPU почти не растёт)");
-            ui.add(egui::Slider::new(&mut cfg.osc_rate_hz, 1.0..=480.0).text("OSC, Гц"))
-                .on_hover_text("частота отправки OSC; отдельный таймер, шлёт последний посчитанный снимок");
+            ui.add(egui::Slider::new(&mut cfg.compute_rate_hz, 30.0..=480.0).text("анализ, Гц"))
+                .on_hover_text("как часто считаем полосы и детекторы. Выше - быстрее отклик ламп и hold");
+            ui.add(egui::Slider::new(&mut cfg.osc_rate_hz, 1.0..=480.0).text("отправка OSC, Гц"))
+                .on_hover_text("как часто шлём последний снимок в QLC. Не обязана совпадать с анализом");
 
             ui.separator();
             ui.heading("OSC");
@@ -685,16 +700,19 @@ impl eframe::App for App {
                 panel_dirty = true;
             }
             if ui.checkbox(&mut cfg.osc.bundle_meta, "meta: bundleSeq / bundleTime / bundleFrame")
-                .on_hover_text("счётчик и таймстамп в каждом bundle — приёмник выбирает новее по bundleSeq")
+                .on_hover_text("счётчик и таймстамп в каждом bundle - приёмник выбирает новее по bundleSeq")
                 .changed()
             {
                 panel_dirty = true;
             }
-            if ui.checkbox(&mut cfg.osc.clip_levels_at_zero, "low/mid/high ≥ 0 на OSC")
+            if ui.checkbox(&mut cfg.osc.clip_levels_at_zero, "low/mid/high >= 0 на OSC")
                 .on_hover_text("при отправке: отрицательные low/mid/high обрезаются до 0; внутри приложения значения без изменений")
                 .changed()
             {
                 panel_dirty = true;
+            }
+            if ui.button("какие каналы слать...").clicked() {
+                open_osc_channels = true;
             }
             ui.collapsing("фаза / синхронизация", |ui| {
                 let p = &mut cfg.osc.phase;
@@ -708,7 +726,7 @@ impl eframe::App for App {
                     .on_hover_text(
                         "Импульсы (kick/snare/trigger*) шлются на ближайшей отметке сетки фазы,\n\
                          а не в момент детекта. Снижает разброс относительно такта,\n\
-                         но добавляет задержку до 1 шага сетки. Выкл — минимальная задержка, больше джиттер.",
+                         но добавляет задержку до 1 шага сетки. Выкл - минимальная задержка, больше джиттер.",
                     )
                     .changed()
                 {
@@ -727,6 +745,9 @@ impl eframe::App for App {
             });
 
             }
+            if open_osc_channels {
+                self.show_osc_channels = true;
+            }
             if do_restart {
                 self.apply_audio_restart();
             }
@@ -737,13 +758,7 @@ impl eframe::App for App {
             });
             ui.horizontal(|ui| {
                 if ui.button("сохранить пресет").clicked() {
-                    self.status = match self.cfg_edit.save_ron(&self.preset_path) {
-                        Ok(_) => {
-                            self.mark_saved_baseline();
-                            "сохранено".into()
-                        }
-                        Err(e) => format!("ошибка: {e}"),
-                    };
+                    self.status = self.save_preset_file();
                 }
                 if ui.button("загрузить").clicked() {
                     match crate::config::Config::load_ron(&self.preset_path) {
@@ -760,10 +775,11 @@ impl eframe::App for App {
                 }
             });
             if preset_dirty {
-                ui.weak(format!(
-                    "autosave: {}",
-                    autosave_path(&self.preset_path).display()
-                ));
+                ui.colored_label(
+                    egui::Color32::from_rgb(255, 200, 80),
+                    "не сохранено в файл пресета (autosave - запасная копия, при старте не грузится)",
+                );
+                ui.weak(format!("копия: {}", autosave_path(&self.preset_path).display()));
             }
             ui.label(&self.status);
             if panel_dirty {
@@ -829,134 +845,174 @@ impl eframe::App for App {
             egui::ScrollArea::vertical().show(ui, |ui| {
                 // ── Полосы: side by side ──
                 ui.heading("Полосы");
+                ui.weak("После компрессора звук режется на 3 фильтра. Дальше: RMS -> pregain -> порог -> gain -> add -> сглаживание -> OSC /low /mid /high и детекторы.");
                 if control_on {
-                    ui.weak("gain полос управляется адаптивом → крутилка gain неактивна");
+                    ui.weak("Адаптив включён: gain полосы берётся из громкости зала, крутилка ниже только база в пресете.");
                 }
                 let bands = &mut self.cfg_edit.bands;
                 let live_gains = [m.control.low_gain, m.control.mid_gain, m.control.high_gain];
                 ui.columns(bands.len(), |cols| {
                     for (i, b) in bands.iter_mut().enumerate() {
                         let ui = &mut cols[i];
-                        ui.group(|ui| {
+                        let band_r = ui.group(|ui| {
                             ui.horizontal(|ui| {
-                                ui.checkbox(&mut b.active, "").on_hover_text("вкл/выкл полосу");
+                                ui.checkbox(&mut b.active, "").on_hover_text("выкл - полоса даёт 0, детектор на ней молчит");
                                 ui.strong(&b.name);
+                                ui.weak("ПКМ - лупа");
                             });
                             ui.add(egui::DragValue::new(&mut b.cutoff_hz).speed(1.0).suffix(" Hz"))
-                                .on_hover_text("частота среза фильтра полосы");
-                            ui.add(egui::DragValue::new(&mut b.rolloff_db_oct).speed(0.5).prefix("roll "))
-                                .on_hover_text("крутизна спада фильтра, дБ/окт");
+                                .on_hover_text("частота среза фильтра этой полосы");
+                            ui.add(egui::DragValue::new(&mut b.rolloff_db_oct).speed(0.5).prefix("спад "))
+                                .on_hover_text("крутизна фильтра, дБ/октава: круче - меньше соседних частот");
                             ui.add(egui::DragValue::new(&mut b.resonance).speed(0.01).prefix("Q "))
-                                .on_hover_text("добротность (резонанс) фильтра");
-                            ui.add(egui::Slider::new(&mut b.pregain, 0.0..=8.0).text("pregain"))
-                                .on_hover_text("усиление ДО измерения RMS полосы");
-                            ui.add(egui::Slider::new(&mut b.threshold, 0.0..=1.0).text("thr"))
-                                .on_hover_text("порог отсечки уровня полосы");
+                                .on_hover_text("горбик на частоте среза");
+                            ui.add(egui::Slider::new(&mut b.pregain, 0.0..=8.0).text("до порога x"))
+                                .on_hover_text("умножает RMS полосы до вычитания порога. Mid/high обычно выше, чтобы слабый RMS дотягивал");
+                            ui.add(egui::Slider::new(&mut b.threshold, 0.0..=1.0).text("порог тишины"))
+                                .on_hover_text("вычитается из RMS. Ниже порога уровень полосы = 0");
                             band_gain_ui(ui, &mut b.gain, live_gains[i], control_on);
-                            ui.add(egui::Slider::new(&mut b.add, -1.0..=1.0).text("add"))
-                                .on_hover_text("смещение уровня (add)");
-                            ui.add(egui::Slider::new(&mut b.smooth_s, 0.0..=1.0).text("smooth s"))
-                                .on_hover_text("окно сглаживания уровня, сек");
-                        });
+                            ui.add(egui::Slider::new(&mut b.add, -1.0..=1.0).text("сдвиг после"))
+                                .on_hover_text("после clamp 0..100, до сглаживания. Отрицательный - глубже пол. Это уже /low /mid /high");
+                            ui.add(egui::Slider::new(&mut b.smooth_s, 0.0..=1.0).text("сглаживание, с"))
+                                .on_hover_text("инерция огибающей. Больше - лампы и OSC менее дёрганые, удар размазан");
+                        })
+                        .response;
+                        probe::open_on_right_click(&band_r, ProbeId::Band(i as u8), &mut probe_hit);
                     }
                 });
 
                 ui.separator();
                 ui.heading("Детекторы");
-                // kick/snare пороги при адаптиве правятся сигмоидами → неактивны; rythm всегда ручной.
+                ui.weak("Kick смотрит RMS low, snare - high, rythm - спектральный flux. Выход 0/1 идёт в OSC (/kick /snare /rythm) и в счётчики долей.");
                 for (idx, d) in self.cfg_edit.detectors.iter_mut().enumerate() {
                     let manual = !control_on || idx == 2;
                     ui.horizontal(|ui| {
-                        ui.checkbox(&mut d.active, "").on_hover_text("вкл/выкл детектор");
+                        ui.checkbox(&mut d.active, "").on_hover_text("выкл - нет импульсов в OSC");
                         ui.strong(&d.name);
-                        ui.add_enabled(manual, egui::DragValue::new(&mut d.threshold).speed(0.01).prefix("thr "))
+                        ui.add_enabled(manual, egui::DragValue::new(&mut d.threshold).speed(0.01).prefix("порог "))
                             .on_hover_text(if idx == 2 {
-                                "порог onset по нормированному flux (0..1)"
+                                "порог по flux (0..1). Kick/snare при адаптиве задаются кривой ниже"
                             } else {
-                                "порог; при адаптиве задаётся сигмоидой (неактивен)"
+                                "когда RMS полосы выше - gate. При адаптиве крутилка серая, порог считает кривая"
                             });
-                        ui.add(egui::DragValue::new(&mut d.retrigger_s).speed(0.005).prefix("retrig "))
-                            .on_hover_text("мин. пауза между импульсами триггера, сек");
+                        ui.add(egui::DragValue::new(&mut d.retrigger_s).speed(0.005).prefix("пауза "))
+                            .on_hover_text("после импульса столько секунд новый удар игнорируется. 0 - можно дребезжать");
                     });
                     ui.horizontal(|ui| {
-                        ui.checkbox(&mut d.hysteresis_enabled, "hyst")
-                            .on_hover_text("гистерезис gate: вкл/выкл");
+                        ui.checkbox(&mut d.hysteresis_enabled, "гистерезис")
+                            .on_hover_text("gate гаснет не на том же пороге, а ниже на d - меньше дрожи на границе");
                         ui.add_enabled(
                             d.hysteresis_enabled,
-                            egui::DragValue::new(&mut d.hysteresis).speed(0.005).prefix("Δ "),
+                            egui::DragValue::new(&mut d.hysteresis).speed(0.005).prefix("d "),
                         )
-                        .on_hover_text("gate гаснет ниже (порог − Δ)");
-                        ui.checkbox(&mut d.trigger_hold_enabled, "hold")
-                            .on_hover_text("удерживать триггер = 1 после импульса");
+                        .on_hover_text("gate выключается при уровне < порог - d");
+                        ui.checkbox(&mut d.trigger_hold_enabled, "удержать 1")
+                            .on_hover_text("OSC-триггер остаётся 1 после удара, не один кадр");
                         ui.add_enabled(
                             d.trigger_hold_enabled,
-                            egui::DragValue::new(&mut d.trigger_hold_s).speed(0.005).prefix("hold "),
+                            egui::DragValue::new(&mut d.trigger_hold_s).speed(0.005).prefix("сек "),
                         )
-                        .on_hover_text("тушить триггер только если нет импульсов столько секунд");
+                        .on_hover_text("гасить в 0, если столько секунд не было нового удара");
                     });
                 }
 
                 ui.separator();
-                ui.heading("Адаптивное управление");
+                ui.heading("Адаптив (подстройка под громкость)");
+                ui.weak("Цепочка: RMS всего входа -> масштаб -> инерция -> отсюда гейны полос и пороги kick/snare.");
                 let c = &mut self.cfg_edit.control;
-                ui.checkbox(&mut c.enabled, "включено (правит гейны полос и пороги kick/snare)")
-                    .on_hover_text("RMS входа → lag → мапперы/сигмоиды → гейны и пороги");
-                ui.checkbox(&mut c.control_rms, "RMS в control-ветви (R3)")
-                    .on_hover_text("считать RMS сигнала control-ветви перед мапперами");
-                gain_ui(ui, "corr gain (math2)", &mut c.corr_gain);
-                ui.collapsing("lag (stateful, без bypass — R3)", |ui| {
-                    ui.label("асимметричное сглаживание с ограничением скорости; помнит прошлые значения");
-                    ui.add(egui::Slider::new(&mut c.lag.lag_up, 0.0..=10.0).text("lag up"))
-                        .on_hover_text("сглаживание на росте (больше → медленнее вверх)");
-                    ui.add(egui::Slider::new(&mut c.lag.lag_dn, 0.0..=10.0).text("lag dn"))
-                        .on_hover_text("сглаживание на спаде (больше → медленнее вниз)");
-                    ui.add(egui::Slider::new(&mut c.lag.accel_up, 0.1..=10.0).text("accel up"))
-                        .on_hover_text("предел ускорения вверх");
-                    ui.add(egui::Slider::new(&mut c.lag.accel_dn, 0.1..=10.0).text("accel dn"))
-                        .on_hover_text("предел ускорения вниз");
+                ui.checkbox(&mut c.enabled, "включён")
+                    .on_hover_text("подменяет gain полос и пороги kick/snare. Выкл - всё с крутилок полос/детекторов");
+                ui.checkbox(&mut c.control_rms, "брать RMS входа")
+                    .on_hover_text("вход этой ветки: RMS кадра. Выкл - модуль того же числа (почти то же)");
+                let _ = probe::mapper_ui(
+                    ui,
+                    "Масштаб громкости зала",
+                    "вход: RMS после компрессора -> этот маппер -> инерция. Отсюда живёт весь адаптив. На прямой OSC /dsprms не влияет.",
+                    &mut c.corr_gain,
+                    ProbeId::Corr,
+                    &mut probe_hit,
+                );
+                ui.collapsing("инерция громкости", |ui| {
+                    ui.weak("После масштаба, до гейнов полос и порогов. Помнит прошлое: зал не прыгает каждый кадр. ПКМ - лупа.");
+                    let lag_r = ui.group(|ui| {
+                        ui.add(egui::Slider::new(&mut c.lag.lag_up, 0.0..=10.0).text("вверх, медленнее"))
+                            .on_hover_text("как быстро растём, когда стало громче");
+                        ui.add(egui::Slider::new(&mut c.lag.lag_dn, 0.0..=10.0).text("вниз, медленнее"))
+                            .on_hover_text("как быстро падаем, когда стало тише");
+                        ui.add(egui::Slider::new(&mut c.lag.accel_up, 0.1..=10.0).text("ускорение вверх"))
+                            .on_hover_text("предел рывка вверх");
+                        ui.add(egui::Slider::new(&mut c.lag.accel_dn, 0.1..=10.0).text("ускорение вниз"))
+                            .on_hover_text("предел рывка вниз");
+                    })
+                    .response;
+                    probe::open_on_right_click(&lag_r, ProbeId::Lag, &mut probe_hit);
                 });
-                ui.collapsing("мапперы гейнов", |ui| {
-                    gain_ui(ui, "low",  &mut c.low_gain);
-                    gain_ui(ui, "mid",  &mut c.mid_gain);
-                    gain_ui(ui, "high (highControlGain1)", &mut c.high_gain);
-                    ui.checkbox(&mut c.use_high_alt, "использовать highControlGain (альт, R1)");
-                    gain_ui(ui, "high alt", &mut c.high_gain_alt);
+                ui.collapsing("гейны полос от громкости", |ui| {
+                    ui.weak("После инерции. Результат подставляется как gain low/mid/high вместо крутилки на полосе.");
+                    let _ = probe::mapper_ui(ui, "-> gain low", "вход: инерция громкости -> gain полосы low", &mut c.low_gain, ProbeId::GainLow, &mut probe_hit);
+                    let _ = probe::mapper_ui(ui, "-> gain mid", "вход: инерция громкости -> gain полосы mid", &mut c.mid_gain, ProbeId::GainMid, &mut probe_hit);
+                    let _ = probe::mapper_ui(ui, "-> gain high", "вход: инерция громкости -> gain полосы high", &mut c.high_gain, ProbeId::GainHigh, &mut probe_hit);
+                    ui.checkbox(&mut c.use_high_alt, "другой маппер для high")
+                        .on_hover_text("вместо основного gain high взять запасной набор крутилок");
+                    let _ = probe::mapper_ui(ui, "-> gain high (запасной)", "тот же вход (инерция), другой масштаб для high", &mut c.high_gain_alt, ProbeId::GainHigh, &mut probe_hit);
                 });
-                ui.collapsing("мапперы порогов + сигмоиды (R4)", |ui| {
-                    ui.label("маппер даёт вход x, сигмоида → порог. На графике: голубая точка — x (пришло), жёлтая — порог (ушло).");
-                    gain_ui(ui, "kick map",  &mut c.kick_map);
-                    sigmoid_ctrl(ui, "kick sigmoid", &mut c.kick_sigmoid, Some(m.control.kick_x), &mut self.sig_win[0]);
-                    gain_ui(ui, "snare map", &mut c.snare_map);
-                    sigmoid_ctrl(ui, "snare sigmoid", &mut c.snare_sigmoid, Some(m.control.snare_x), &mut self.sig_win[1]);
-                    gain_ui(ui, "rythm map", &mut c.rythm_map);
-                    sigmoid_ctrl(ui, "rythm sigmoid", &mut c.rythm_sigmoid, Some(m.control.rythm_x), &mut self.sig_win[2]);
+                ui.collapsing("пороги kick / snare / rythm", |ui| {
+                    ui.weak("После инерции: линейный маппер даёт x, кривая сжимает его в порог детектора. Голубая точка - x, жёлтая - порог. ПКМ - лупа по времени.");
+                    let _ = probe::mapper_ui(ui, "к порогу kick", "вход: инерция -> x для кривой kick", &mut c.kick_map, ProbeId::KickMap, &mut probe_hit);
+                    let _ = probe::sigmoid_ui(ui, "кривая порога kick", &mut c.kick_sigmoid, m.control.kick_x, ProbeId::KickSig, &mut probe_hit, &mut self.sig_win[0]);
+                    let _ = probe::mapper_ui(ui, "к порогу snare", "вход: инерция -> x для кривой snare", &mut c.snare_map, ProbeId::SnareMap, &mut probe_hit);
+                    let _ = probe::sigmoid_ui(ui, "кривая порога snare", &mut c.snare_sigmoid, m.control.snare_x, ProbeId::SnareSig, &mut probe_hit, &mut self.sig_win[1]);
+                    let _ = probe::mapper_ui(ui, "к порогу rythm", "вход: инерция -> x для кривой rythm (в эталоне часто выкл.)", &mut c.rythm_map, ProbeId::RythmMap, &mut probe_hit);
+                    let _ = probe::sigmoid_ui(ui, "кривая порога rythm", &mut c.rythm_sigmoid, m.control.rythm_x, ProbeId::RythmSig, &mut probe_hit, &mut self.sig_win[2]);
                 });
             });
-
-            // ── Всплывающие окна сигмоид с увеличенным графиком ──
-            let ctrl = &mut self.cfg_edit.control;
-            let sigs: [(&str, &mut SigmoidCfg, f32); 3] = [
-                ("kick sigmoid", &mut ctrl.kick_sigmoid, m.control.kick_x),
-                ("snare sigmoid", &mut ctrl.snare_sigmoid, m.control.snare_x),
-                ("rythm sigmoid", &mut ctrl.rythm_sigmoid, m.control.rythm_x),
-            ];
-            for (i, (label, s, live_x)) in sigs.into_iter().enumerate() {
-                let mut open = self.sig_win[i];
-                egui::Window::new(label)
-                    .open(&mut open)
-                    .default_size([420.0, 380.0])
-                    .resizable(true)
-                    .show(ctx, |ui| {
-                        ui.horizontal(|ui| {
-                            ui.checkbox(&mut s.enabled, "сигмоида вкл");
-                        });
-                        sigmoid_params(ui, s);
-                        let h = (ui.available_height() - 10.0).max(120.0);
-                        sigmoid_plot(ui, &format!("win_{label}"), s, Some(live_x), h);
-                    });
-                self.sig_win[i] = open;
-            }
         });
+
+        {
+            let ctrl = &mut self.cfg_edit.control;
+            if probe::sigmoid_window(ctx, "кривая порога kick", &mut self.sig_win[0], &mut ctrl.kick_sigmoid, m.control.kick_x) {
+                self.config_dirty = true;
+            }
+        }
+        {
+            let ctrl = &mut self.cfg_edit.control;
+            if probe::sigmoid_window(ctx, "кривая порога snare", &mut self.sig_win[1], &mut ctrl.snare_sigmoid, m.control.snare_x) {
+                self.config_dirty = true;
+            }
+        }
+        {
+            let ctrl = &mut self.cfg_edit.control;
+            if probe::sigmoid_window(ctx, "кривая порога rythm", &mut self.sig_win[2], &mut ctrl.rythm_sigmoid, m.control.rythm_x) {
+                self.config_dirty = true;
+            }
+        }
+
+        if let Some(id) = probe_hit {
+            self.probe = Some(id);
+            self.probe_opened = Instant::now();
+        }
+        if probe::poster(
+            ctx,
+            &mut self.show_poster,
+            &mut self.cfg_edit,
+            &m,
+            &mut self.probe,
+            &mut self.probe_opened,
+        ) {
+            self.mark_dirty();
+        }
+        if probe::popup(
+            ctx,
+            ProbeUi {
+                slot: &mut self.probe,
+                opened: &mut self.probe_opened,
+                hist: &self.probe_hist,
+                metrics: &m,
+            },
+            &mut self.cfg_edit,
+        ) {
+            self.mark_dirty();
+        }
 
         // Короткий write-lock: коммитим локальный конфиг при изменениях или во время drag.
         if self.config_dirty || ctx.input(|i| i.pointer.any_down()) {

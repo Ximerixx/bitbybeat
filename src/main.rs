@@ -15,6 +15,7 @@ mod diag;
 mod osc;
 mod osc_map;
 mod preset;
+mod probe;
 mod shared;
 
 use config::Config;

@@ -70,10 +70,13 @@ impl BeatDetector {
 pub struct BeatCounter {
     modulo: u32,
     count: u32,
+    prev_high: bool,
     pub trigger: f32,
 }
 impl BeatCounter {
-    pub fn new(modulo: u32) -> Self { Self { modulo, count: 0, trigger: 0.0 } }
+    pub fn new(modulo: u32) -> Self {
+        Self { modulo, count: 0, prev_high: false, trigger: 0.0 }
+    }
 
     /// Текущая позиция в цикле 1..=modulo (0 если ещё не было триггеров).
     pub fn count(&self) -> u32 {
@@ -89,12 +92,18 @@ impl BeatCounter {
     pub fn phase(&self) -> f32 {
         if self.count == 0 { 0.0 } else { (self.count - 1) as f32 / self.modulo as f32 }
     }
-    /// На каждый входной trigger инкремент; импульс на начале цикла (count == 1, express `if $V==1`).
+    /// Инкремент только на фронте 0→1 (hold не крутит счётчик каждый кадр).
+    /// Импульс на начале цикла (count == 1).
     pub fn process(&mut self, in_trigger: f32) -> f32 {
         self.trigger = 0.0;
-        if in_trigger > 0.5 {
+        let high = in_trigger > 0.5;
+        let rising = high && !self.prev_high;
+        self.prev_high = high;
+        if rising {
             self.count = (self.count % self.modulo) + 1; // 1..=modulo
-            if self.count == 1 { self.trigger = 1.0; }
+            if self.count == 1 {
+                self.trigger = 1.0;
+            }
         }
         self.trigger
     }

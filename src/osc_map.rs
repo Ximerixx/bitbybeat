@@ -1,6 +1,27 @@
 //! Маппинг результатов анализа → OSC-каналы (вынесено из engine).
 
-use crate::config::Config;
+use crate::config::{Config, OscCfg};
+
+/// Каналы, которые можно включить/выключить в GUI (адрес, подпись).
+pub const OSC_CHANNEL_LIST: &[(&str, &str)] = &[
+    ("low", "полоса low"),
+    ("mid", "полоса mid"),
+    ("high", "полоса high"),
+    ("kick", "триггер kick (hold)"),
+    ("snare", "триггер snare (hold)"),
+    ("rythm", "триггер rythm (hold)"),
+    ("spectralCentroid", "spectral centroid"),
+    ("fmsd", "fmsd"),
+    ("smsd", "smsd"),
+    ("beatPhase", "фаза такта"),
+    ("trigger4k", "доля 1/4 kick"),
+    ("trigger8k", "доля 1/8 kick"),
+    ("trigger16k", "доля 1/16 kick"),
+    ("trigger4s", "доля 1/4 snare"),
+    ("trigger8s", "доля 1/8 snare"),
+    ("trigger16s", "доля 1/16 snare"),
+    ("dsprms", "DSP RMS"),
+];
 
 /// Результат одного compute-тика (без транспорта OSC).
 #[derive(Clone, Debug, Default)]
@@ -25,6 +46,7 @@ pub struct AnalysisFrame {
 pub struct TriggerPulse {
     pub address: &'static str,
     pub phase: f32,
+    #[allow(dead_code)]
     pub frame_id: u64,
 }
 
@@ -39,6 +61,8 @@ pub enum OscChannelKind {
 pub struct OscChannel {
     pub address: String,
     pub value: f32,
+    /// Семантика канала (триггер vs непрерывный); фильтр нулей снят под QLC+.
+    #[allow(dead_code)]
     pub kind: OscChannelKind,
 }
 
@@ -79,7 +103,7 @@ pub fn build_snapshot(frame: &AnalysisFrame, cfg: &Config, prev_triggers: &mut T
         OscChannel { address: "smsd".into(), value: frame.sms, kind: OscChannelKind::Continuous },
         OscChannel { address: "beatPhase".into(), value: frame.beat_phase, kind: OscChannelKind::Continuous },
         OscChannel { address: "kick".into(), value: frame.kick.1, kind: OscChannelKind::Trigger },
-        OscChannel { address: "snare".into(), value: frame.snare.0, kind: OscChannelKind::Trigger },
+        OscChannel { address: "snare".into(), value: frame.snare.1, kind: OscChannelKind::Trigger },
         OscChannel { address: "rythm".into(), value: frame.rythm.1, kind: OscChannelKind::Trigger },
     ];
 
@@ -142,18 +166,14 @@ impl TriggerState {
     }
 }
 
-/// Отфильтровать каналы для отправки: триггеры с value≈0 пропускаем.
-/// `clip_levels` — low/mid/high clamp к 0 только на выход OSC.
-pub fn channels_for_send(channels: &[OscChannel], clip_levels: bool) -> Vec<(String, f32)> {
+/// Каналы для отправки: фильтр по тумблерам + clip low/mid/high.
+pub fn channels_for_send(channels: &[OscChannel], osc: &OscCfg) -> Vec<(String, f32)> {
     channels
         .iter()
-        .filter(|c| match c.kind {
-            OscChannelKind::Continuous => true,
-            OscChannelKind::Trigger => c.value > 0.5,
-        })
+        .filter(|c| osc.sends(&c.address))
         .map(|c| {
             let mut v = c.value;
-            if clip_levels && matches!(c.address.as_str(), "low" | "mid" | "high") {
+            if osc.clip_levels_at_zero && matches!(c.address.as_str(), "low" | "mid" | "high") {
                 v = v.max(0.0);
             }
             (c.address.clone(), v)
