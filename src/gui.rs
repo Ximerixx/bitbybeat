@@ -29,6 +29,7 @@ pub struct App {
     pulse_sources: Vec<audio::PulseSource>,
     preset_path: String,
     status: String,
+    sig_win: [bool; 3],
     show_console: bool,
     log_debug: bool,
     log_info: bool,
@@ -65,6 +66,7 @@ impl App {
             pulse_sources: audio::list_pulse_sources(),
             preset_path: "preset.ron".into(),
             status: String::new(),
+            sig_win: [false; 3],
             show_console: false,
             log_debug: false,
             log_info: true,
@@ -955,16 +957,35 @@ impl eframe::App for App {
                     let _ = probe::mapper_ui(ui, "-> gain high (запасной)", "тот же вход (инерция), другой масштаб для high", &mut c.high_gain_alt, ProbeId::GainHigh, &mut probe_hit);
                 });
                 ui.collapsing("пороги kick / snare / rythm", |ui| {
-                    ui.weak("После инерции: линейный маппер даёт x, кривая сжимает его в порог детектора. ПКМ / лупа - график входа и выхода.");
+                    ui.weak("После инерции: линейный маппер даёт x, кривая сжимает его в порог детектора. Голубая точка - x, жёлтая - порог. ПКМ - лупа по времени.");
                     let _ = probe::mapper_ui(ui, "к порогу kick", "вход: инерция -> x для кривой kick", &mut c.kick_map, ProbeId::KickMap, &mut probe_hit);
-                    let _ = probe::sigmoid_ui(ui, "кривая порога kick", &mut c.kick_sigmoid, m.control.kick_x, ProbeId::KickSig, &mut probe_hit);
+                    let _ = probe::sigmoid_ui(ui, "кривая порога kick", &mut c.kick_sigmoid, m.control.kick_x, ProbeId::KickSig, &mut probe_hit, &mut self.sig_win[0]);
                     let _ = probe::mapper_ui(ui, "к порогу snare", "вход: инерция -> x для кривой snare", &mut c.snare_map, ProbeId::SnareMap, &mut probe_hit);
-                    let _ = probe::sigmoid_ui(ui, "кривая порога snare", &mut c.snare_sigmoid, m.control.snare_x, ProbeId::SnareSig, &mut probe_hit);
+                    let _ = probe::sigmoid_ui(ui, "кривая порога snare", &mut c.snare_sigmoid, m.control.snare_x, ProbeId::SnareSig, &mut probe_hit, &mut self.sig_win[1]);
                     let _ = probe::mapper_ui(ui, "к порогу rythm", "вход: инерция -> x для кривой rythm (в эталоне часто выкл.)", &mut c.rythm_map, ProbeId::RythmMap, &mut probe_hit);
-                    let _ = probe::sigmoid_ui(ui, "кривая порога rythm", &mut c.rythm_sigmoid, m.control.rythm_x, ProbeId::RythmSig, &mut probe_hit);
+                    let _ = probe::sigmoid_ui(ui, "кривая порога rythm", &mut c.rythm_sigmoid, m.control.rythm_x, ProbeId::RythmSig, &mut probe_hit, &mut self.sig_win[2]);
                 });
             });
         });
+
+        {
+            let ctrl = &mut self.cfg_edit.control;
+            if probe::sigmoid_window(ctx, "кривая порога kick", &mut self.sig_win[0], &mut ctrl.kick_sigmoid, m.control.kick_x) {
+                self.config_dirty = true;
+            }
+        }
+        {
+            let ctrl = &mut self.cfg_edit.control;
+            if probe::sigmoid_window(ctx, "кривая порога snare", &mut self.sig_win[1], &mut ctrl.snare_sigmoid, m.control.snare_x) {
+                self.config_dirty = true;
+            }
+        }
+        {
+            let ctrl = &mut self.cfg_edit.control;
+            if probe::sigmoid_window(ctx, "кривая порога rythm", &mut self.sig_win[2], &mut ctrl.rythm_sigmoid, m.control.rythm_x) {
+                self.config_dirty = true;
+            }
+        }
 
         if let Some(id) = probe_hit {
             self.probe = Some(id);

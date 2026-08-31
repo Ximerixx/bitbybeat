@@ -4,7 +4,7 @@
 use crate::config::{Config, GainCfg, LagCfg, SigmoidCfg};
 use crate::shared::Metrics;
 use eframe::egui;
-use egui_plot::{Line, Plot, PlotPoints};
+use egui_plot::{Line, Plot, PlotPoints, Points};
 use std::collections::VecDeque;
 use std::time::Instant;
 
@@ -204,7 +204,42 @@ pub fn gain_knobs(ui: &mut egui::Ui, g: &mut GainCfg) -> bool {
     dirty
 }
 
-/// Компактная кривая + ПКМ = лупа.
+/// Кривая сигмоиды + точки: голубая = вход x, жёлтая = выход (порог).
+fn sigmoid_plot(ui: &mut egui::Ui, plot_id: &str, s: &SigmoidCfg, live_x: Option<f32>, height: f32) {
+    let xmax = (s.center * 2.0)
+        .max(1.0)
+        .max(live_x.unwrap_or(0.0) * 1.15)
+        .max(0.5) as f64;
+    let curve: PlotPoints = (0..=200)
+        .map(|i| {
+            let x = xmax * i as f64 / 200.0;
+            [x, s.eval(x as f32) as f64]
+        })
+        .collect();
+    Plot::new(plot_id)
+        .height(height)
+        .include_y(0.0)
+        .show(ui, |p| {
+            p.line(Line::new(curve).name("сигмоида"));
+            if let Some(x) = live_x {
+                let y = s.eval(x);
+                p.points(
+                    Points::new(vec![[x as f64, 0.0]])
+                        .radius(4.0_f32)
+                        .color(egui::Color32::LIGHT_BLUE)
+                        .name("вход x (пришло)"),
+                );
+                p.points(
+                    Points::new(vec![[x as f64, y as f64]])
+                        .radius(6.0_f32)
+                        .color(egui::Color32::YELLOW)
+                        .name("выход (порог)"),
+                );
+            }
+        });
+}
+
+/// Как раньше в колонке: кривая на месте, «окно» увеличивает график, ПКМ = лупа.
 pub fn sigmoid_ui(
     ui: &mut egui::Ui,
     label: &str,
@@ -212,30 +247,74 @@ pub fn sigmoid_ui(
     live_x: f32,
     id: ProbeId,
     slot: &mut Option<ProbeId>,
+    open_win: &mut bool,
 ) -> bool {
     let mut dirty = false;
     let r = ui.group(|ui| {
         ui.horizontal(|ui| {
+            dirty |= ui
+                .checkbox(&mut s.enabled, "")
+                .on_hover_text("вкл - сигмоида; выкл - значение проходит линейно (как есть)")
+                .changed();
             ui.strong(label);
-            if ui.small_button("лупа").clicked() {
-                *slot = Some(id);
+            if ui
+                .small_button("окно")
+                .on_hover_text("открыть в отдельном окне с большим графиком")
+                .clicked()
+            {
+                *open_win = true;
             }
         });
         dirty |= sigmoid_knobs(ui, s);
-        ui.label(format!("вход {live_x:.3}  выход {:.3}", s.eval(live_x)));
+        sigmoid_plot(ui, label, s, Some(live_x), 90.0);
     })
     .response;
     open_on_right_click(&r, id, slot);
     dirty
 }
 
+/// Большое окно той же кривой (кнопка «окно»).
+pub fn sigmoid_window(
+    ctx: &egui::Context,
+    title: &str,
+    open: &mut bool,
+    s: &mut SigmoidCfg,
+    live_x: f32,
+) -> bool {
+    if !*open {
+        return false;
+    }
+    let mut dirty = false;
+    let mut keep = *open;
+    egui::Window::new(title)
+        .open(&mut keep)
+        .default_size([420.0, 380.0])
+        .resizable(true)
+        .show(ctx, |ui| {
+            dirty |= ui.checkbox(&mut s.enabled, "сигмоида вкл").changed();
+            dirty |= sigmoid_knobs(ui, s);
+            let h = (ui.available_height() - 10.0).max(120.0);
+            sigmoid_plot(ui, &format!("win_{title}"), s, Some(live_x), h);
+        });
+    *open = keep;
+    dirty
+}
+
 fn sigmoid_knobs(ui: &mut egui::Ui, s: &mut SigmoidCfg) -> bool {
     let mut dirty = false;
-    dirty |= ui.checkbox(&mut s.enabled, "кривая вкл").changed();
     ui.horizontal(|ui| {
-        dirty |= ui.add(egui::DragValue::new(&mut s.ceil).speed(0.01).prefix("потолок ")).changed();
-        dirty |= ui.add(egui::DragValue::new(&mut s.center).speed(0.05).prefix("центр ")).changed();
-        if ui.checkbox(&mut s.asymmetric, "асимм").changed() {
+        dirty |= ui
+            .add(egui::DragValue::new(&mut s.ceil).speed(0.01).prefix("ceil "))
+            .on_hover_text("потолок: максимум выхода кривой")
+            .changed();
+        dirty |= ui
+            .add(egui::DragValue::new(&mut s.center).speed(0.05).prefix("c "))
+            .on_hover_text("центр: значение входа, где кривая на половине высоты")
+            .changed();
+        let a = ui
+            .checkbox(&mut s.asymmetric, "асимм")
+            .on_hover_text("раздельная крутизна левой и правой половины относительно центра");
+        if a.changed() {
             dirty = true;
             if s.asymmetric {
                 s.k_left = s.k;
@@ -245,10 +324,19 @@ fn sigmoid_knobs(ui: &mut egui::Ui, s: &mut SigmoidCfg) -> bool {
     });
     ui.horizontal(|ui| {
         if s.asymmetric {
-            dirty |= ui.add(egui::DragValue::new(&mut s.k_left).speed(0.01).prefix("<k ")).changed();
-            dirty |= ui.add(egui::DragValue::new(&mut s.k_right).speed(0.01).prefix("k> ")).changed();
+            dirty |= ui
+                .add(egui::DragValue::new(&mut s.k_left).speed(0.01).prefix("<k "))
+                .on_hover_text("крутизна левой половины (x < центра): круче -> резче вход снизу")
+                .changed();
+            dirty |= ui
+                .add(egui::DragValue::new(&mut s.k_right).speed(0.01).prefix("k> "))
+                .on_hover_text("крутизна правой половины (x > центра): круче -> резче насыщение сверху")
+                .changed();
         } else {
-            dirty |= ui.add(egui::DragValue::new(&mut s.k).speed(0.01).prefix("k ")).changed();
+            dirty |= ui
+                .add(egui::DragValue::new(&mut s.k).speed(0.01).prefix("k "))
+                .on_hover_text("общая крутизна: больше -> резче переход")
+                .changed();
         }
     });
     dirty
@@ -308,9 +396,21 @@ fn knobs_for(ui: &mut egui::Ui, id: ProbeId, cfg: &mut Config, m: &Metrics) -> b
         ProbeId::KickMap => gain_knobs(ui, &mut cfg.control.kick_map),
         ProbeId::SnareMap => gain_knobs(ui, &mut cfg.control.snare_map),
         ProbeId::RythmMap => gain_knobs(ui, &mut cfg.control.rythm_map),
-        ProbeId::KickSig => sigmoid_knobs(ui, &mut cfg.control.kick_sigmoid),
-        ProbeId::SnareSig => sigmoid_knobs(ui, &mut cfg.control.snare_sigmoid),
-        ProbeId::RythmSig => sigmoid_knobs(ui, &mut cfg.control.rythm_sigmoid),
+        ProbeId::KickSig => {
+            let mut d = ui.checkbox(&mut cfg.control.kick_sigmoid.enabled, "кривая вкл").changed();
+            d |= sigmoid_knobs(ui, &mut cfg.control.kick_sigmoid);
+            d
+        }
+        ProbeId::SnareSig => {
+            let mut d = ui.checkbox(&mut cfg.control.snare_sigmoid.enabled, "кривая вкл").changed();
+            d |= sigmoid_knobs(ui, &mut cfg.control.snare_sigmoid);
+            d
+        }
+        ProbeId::RythmSig => {
+            let mut d = ui.checkbox(&mut cfg.control.rythm_sigmoid.enabled, "кривая вкл").changed();
+            d |= sigmoid_knobs(ui, &mut cfg.control.rythm_sigmoid);
+            d
+        }
     }
 }
 
