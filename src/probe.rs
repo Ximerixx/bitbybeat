@@ -198,14 +198,14 @@ fn lupa_icon_button(ui: &mut egui::Ui) -> egui::Response {
     let glass_c = rect.center() + egui::vec2(-1.5, -1.5);
     let glass_r = side * 0.18;
     let ink = vis.text_color();
-    painter.circle_stroke(glass_c, glass_r, egui::Stroke::new(1.5, ink));
+    painter.circle_stroke(glass_c, glass_r, egui::Stroke::new(1.5_f32, ink));
     let dir = egui::vec2(0.72, 0.72);
     painter.line_segment(
         [
             glass_c + dir * glass_r,
             glass_c + dir * (glass_r + side * 0.16),
         ],
-        egui::Stroke::new(1.7, ink),
+        egui::Stroke::new(1.7_f32, ink),
     );
     response
 }
