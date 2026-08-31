@@ -7,6 +7,9 @@
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
+fn default_input_gain() -> GainCfg {
+    GainCfg::new(0.0, 1.0, 0.0)
+}
 fn default_compute_rate() -> f32 { 120.0 }
 fn default_osc_rate() -> f32 { 60.0 }
 
@@ -399,6 +402,9 @@ pub struct Config {
     pub input: InputCfg,
     /// Пре-компрессор (R1, дефолт bypass).
     pub compressor: Toggle<CompressorCfg>,
+    /// Гейн всего входа после компрессора, до полос/спектра/адаптива. Те же pre/x/post что у мапперов.
+    #[serde(default = "default_input_gain")]
+    pub input_gain: GainCfg,
     /// RMS-power во входную DSP-ветвь (R2).
     pub dsp_rmspower: bool,
     /// `math1` — DSP-гейн входа.
@@ -422,6 +428,7 @@ impl Default for Config {
         Self {
             input: InputCfg::default(),
             compressor: Toggle::off(CompressorCfg::default()),
+            input_gain: default_input_gain(),
             dsp_rmspower: false,
             dsp_gain: GainCfg::new(0.1, 2.28, 0.0),
             bands: vec![

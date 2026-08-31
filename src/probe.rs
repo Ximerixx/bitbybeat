@@ -11,6 +11,7 @@ const HIST: usize = 240;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ProbeId {
+    InputGain,
     DspRms,
     Corr,
     Lag,
@@ -30,6 +31,7 @@ pub enum ProbeId {
 impl ProbeId {
     fn title(self) -> &'static str {
         match self {
+            Self::InputGain => "гейн входа",
             Self::DspRms => "/dsprms",
             Self::Corr => "масштаб зала",
             Self::Lag => "инерция",
@@ -108,6 +110,7 @@ fn live(id: ProbeId, m: &Metrics, cfg: &Config) -> (f32, f32) {
     let rms = m.input_rms;
     let lag = m.control.lag_value;
     match id {
+        ProbeId::InputGain => (rms, cfg.input_gain.apply(rms)),
         ProbeId::DspRms => (rms, cfg.dsp_gain.apply(rms)),
         ProbeId::Corr => (rms, cfg.control.corr_gain.apply(rms)),
         ProbeId::Lag => (cfg.control.corr_gain.apply(rms), lag),
@@ -133,7 +136,7 @@ fn live(id: ProbeId, m: &Metrics, cfg: &Config) -> (f32, f32) {
 
 fn series_in<'a>(id: ProbeId, h: &'a ProbeHistory) -> &'a VecDeque<f32> {
     match id {
-        ProbeId::DspRms | ProbeId::Corr => &h.input_rms,
+        ProbeId::InputGain | ProbeId::DspRms | ProbeId::Corr => &h.input_rms,
         ProbeId::Lag => &h.input_rms,
         ProbeId::Band(i) => &h.band_rms[i.min(2) as usize],
         ProbeId::GainLow | ProbeId::GainMid | ProbeId::GainHigh | ProbeId::KickMap | ProbeId::SnareMap | ProbeId::RythmMap => &h.lag,
@@ -146,6 +149,7 @@ fn series_in<'a>(id: ProbeId, h: &'a ProbeHistory) -> &'a VecDeque<f32> {
 
 fn map_out(id: ProbeId, x: f32, cfg: &Config) -> f32 {
     match id {
+        ProbeId::InputGain => cfg.input_gain.apply(x),
         ProbeId::DspRms => cfg.dsp_gain.apply(x),
         ProbeId::Corr => cfg.control.corr_gain.apply(x),
         ProbeId::Lag => cfg.control.corr_gain.apply(x),
@@ -414,6 +418,7 @@ fn band_knobs(ui: &mut egui::Ui, cfg: &mut Config, i: usize, adaptive: bool, liv
 
 fn knobs_for(ui: &mut egui::Ui, id: ProbeId, cfg: &mut Config, m: &Metrics) -> bool {
     match id {
+        ProbeId::InputGain => gain_knobs(ui, &mut cfg.input_gain),
         ProbeId::DspRms => {
             let mut d = ui.checkbox(&mut cfg.dsp_rmspower, "считать /dsprms").changed();
             d |= gain_knobs(ui, &mut cfg.dsp_gain);
@@ -630,6 +635,10 @@ pub fn poster(
                     dirty |= node(ui, "1. RMS входа", ProbeId::Corr, slot, entered, |ui| {
                         ui.label(format!("{:.4}", m.input_rms));
                         false
+                    });
+                    ui.label("->");
+                    dirty |= node(ui, "вход x", ProbeId::InputGain, slot, entered, |ui| {
+                        gain_knobs(ui, &mut cfg.input_gain)
                     });
                     ui.label("->");
                     dirty |= node(ui, "2. /dsprms", ProbeId::DspRms, slot, entered, |ui| {

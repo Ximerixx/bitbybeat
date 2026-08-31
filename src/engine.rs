@@ -112,6 +112,7 @@ fn run(shared: Arc<Shared>) {
         if cfg.compressor.enabled {
             apply_compressor(&mut frame, &cfg.compressor.cfg);
         }
+        apply_input_gain(&mut frame, &cfg.input_gain);
         let dsp_signal_rms = rms_power(&frame);
         let input_rms = dsp_signal_rms;
 
@@ -282,5 +283,11 @@ fn apply_compressor(frame: &mut [f32], cfg: &crate::config::CompressorCfg) {
             *s *= comp;
         }
         *s *= makeup;
+    }
+}
+
+fn apply_input_gain(frame: &mut [f32], g: &crate::config::GainCfg) {
+    for s in frame.iter_mut() {
+        *s = g.apply(*s);
     }
 }

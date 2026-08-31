@@ -655,7 +655,7 @@ impl eframe::App for App {
 
             ui.separator();
             ui.heading("Пре-обработка");
-            ui.weak("Цепочка: устройство -> моно -> (компрессор) -> полосы / спектр / адаптив.");
+            ui.weak("Цепочка: устройство -> моно -> (компрессор) -> входной гейн -> полосы / спектр / адаптив.");
             ui.checkbox(&mut cfg.compressor.enabled, "компрессор на входе")
                 .on_hover_text("сжимает громкость всего сигнала до фильтров полос; выкл - сырой звук в анализ");
             if cfg.compressor.enabled {
@@ -677,8 +677,18 @@ impl eframe::App for App {
                 ui.add(egui::Slider::new(&mut c.makeup_db, -12.0..=24.0).text("компенсация, дБ"))
                     .on_hover_text("громкость после сжатия, чтобы уровень не просел");
             }
+            if probe::mapper_ui(
+                ui,
+                "Гейн входа (до DSP)",
+                "после компрессора, до полос/спектра/адаптива. Те же до + / x / после +. Дефолт x1, сигнал не трогает.",
+                &mut cfg.input_gain,
+                ProbeId::InputGain,
+                &mut probe_hit,
+            ) {
+                panel_dirty = true;
+            }
             ui.checkbox(&mut cfg.dsp_rmspower, "считать /dsprms")
-                .on_hover_text("отдельный канал OSC: RMS всего кадра после компрессора. На полосы и детекторы не влияет");
+                .on_hover_text("отдельный канал OSC: RMS всего кадра после компрессора и входного гейна. На полосы и детекторы не влияет");
             if probe::mapper_ui(
                 ui,
                 "Громкость для /dsprms",
@@ -691,11 +701,6 @@ impl eframe::App for App {
             }
 
             ui.separator();
-            ui.heading("Частоты");
-            ui.add(egui::Slider::new(&mut cfg.compute_rate_hz, 30.0..=480.0).text("анализ, Гц"))
-                .on_hover_text("как часто считаем полосы и детекторы. Выше - быстрее отклик ламп и hold");
-            ui.add(egui::Slider::new(&mut cfg.osc_rate_hz, 1.0..=480.0).text("отправка OSC, Гц"))
-                .on_hover_text("как часто шлём последний снимок в QLC. Не обязана совпадать с анализом");
             if probe::spectral_ui(ui, cfg, &m, &mut probe_hit) {
                 panel_dirty = true;
             }
@@ -871,6 +876,21 @@ impl eframe::App for App {
                 lamp(ui, "LOW", (m.band_levels[0] / 1.5).clamp(0.0, 1.0), egui::Color32::from_rgb(255, 180, 60));
                 lamp(ui, "MID", (m.band_levels[1] / 1.5).clamp(0.0, 1.0), egui::Color32::from_rgb(255, 230, 90));
                 lamp(ui, "HIGH", (m.band_levels[2] / 1.5).clamp(0.0, 1.0), egui::Color32::from_rgb(200, 120, 255));
+                ui.separator();
+                ui.vertical(|ui| {
+                    if ui.add(egui::Slider::new(&mut self.cfg_edit.compute_rate_hz, 30.0..=480.0).text("анализ, Гц"))
+                        .on_hover_text("как часто считаем полосы и детекторы. Выше - быстрее отклик ламп и hold")
+                        .changed()
+                    {
+                        self.mark_dirty();
+                    }
+                    if ui.add(egui::Slider::new(&mut self.cfg_edit.osc_rate_hz, 1.0..=480.0).text("OSC, Гц"))
+                        .on_hover_text("как часто шлём последний снимок в QLC. Не обязана совпадать с анализом")
+                        .changed()
+                    {
+                        self.mark_dirty();
+                    }
+                });
             });
         });
 
@@ -880,7 +900,7 @@ impl eframe::App for App {
             egui::ScrollArea::vertical().show(ui, |ui| {
                 // ── Полосы: side by side ──
                 ui.heading("Полосы");
-                ui.weak("После компрессора звук режется на 3 фильтра. Дальше: RMS -> pregain -> порог -> gain -> add -> сглаживание -> OSC /low /mid /high и детекторы.");
+                ui.weak("После компрессора и входного гейна звук режется на 3 фильтра. Дальше: RMS -> pregain -> порог -> gain -> add -> сглаживание -> OSC /low /mid /high и детекторы.");
                 if control_on {
                     ui.weak("Адаптив включён: gain полосы берётся из громкости зала, крутилка ниже только база в пресете.");
                 }
