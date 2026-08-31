@@ -216,6 +216,8 @@ fn run(shared: Arc<Shared>) {
         metrics.fms = fms;
         metrics.sms = sms;
         metrics.flux = spectrum.flux;
+        metrics.detect = [brms[0], brms[2], flux_norm];
+        metrics.detect_thr = [kd.threshold, sd.threshold, rd.threshold];
         metrics.dsp_rms = dsp_rms;
         metrics.beat_phase = beat_phase;
         metrics.kick_bar_pos = kick_counts.c4.count();

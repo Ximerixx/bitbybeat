@@ -30,6 +30,9 @@ pub struct Metrics {
     pub fms: f32,
     pub sms: f32,
     pub flux: f32,
+    /// Вход детекторов: kick=low RMS*pregain, snare=high RMS*pregain, rythm=flux 0..1.
+    pub detect: [f32; 3],
+    pub detect_thr: [f32; 3],
     pub dsp_rms: f32,
     pub beat_phase: f32,
     /// Позиция в такте 4 (1..4), 0 если ещё не было ударов.
@@ -74,6 +77,8 @@ impl Default for Metrics {
             fms: 0.0,
             sms: 0.0,
             flux: 0.0,
+            detect: [0.0; 3],
+            detect_thr: [0.0; 3],
             dsp_rms: 0.0,
             beat_phase: 0.0,
             kick_bar_pos: 0,
@@ -114,6 +119,8 @@ impl Metrics {
         dst.fms = self.fms;
         dst.sms = self.sms;
         dst.flux = self.flux;
+        dst.detect = self.detect;
+        dst.detect_thr = self.detect_thr;
         dst.dsp_rms = self.dsp_rms;
         dst.beat_phase = self.beat_phase;
         dst.kick_bar_pos = self.kick_bar_pos;

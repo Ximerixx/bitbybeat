@@ -201,6 +201,22 @@ fn meter(ui: &mut egui::Ui, label: &str, v: f32, max: f32) {
     });
 }
 
+/// Значение на входе детектора + порог, с которым оно сравнивается.
+fn meter_detect(ui: &mut egui::Ui, label: &str, v: f32, thr: f32, max: f32) {
+    ui.horizontal(|ui| {
+        let over = v > thr;
+        ui.label(format!("{label}: {v:6.3}"));
+        let frac = if max > 1e-9 { (v / max).clamp(0.0, 1.0) } else { 0.0 };
+        ui.add(egui::ProgressBar::new(frac).desired_width(120.0));
+        let col = if over {
+            egui::Color32::from_rgb(120, 255, 120)
+        } else {
+            egui::Color32::GRAY
+        };
+        ui.colored_label(col, format!("порог {thr:.3}"));
+    });
+}
+
 /// Gain полосы: при адаптиве показываем базу (серую) и живое значение.
 fn band_gain_ui(ui: &mut egui::Ui, manual: &mut f32, live: f32, adaptive_on: bool) {
     ui.horizontal(|ui| {
@@ -819,6 +835,12 @@ impl eframe::App for App {
             meter(ui, "low",  m.band_levels[0], 2.0);
             meter(ui, "mid",  m.band_levels[1], 2.0);
             meter(ui, "high", m.band_levels[2], 2.0);
+            ui.weak("OSC /low /mid /high (после gain, add, сглаживания)");
+            ui.separator();
+            ui.weak("вход детекторов: с этим сравнивается порог. kick=low*pregain, snare=high*pregain, rythm=flux 0..1");
+            meter_detect(ui, "kick in", m.detect[0], m.detect_thr[0], 1.0);
+            meter_detect(ui, "snare in", m.detect[1], m.detect_thr[1], 2.0);
+            meter_detect(ui, "rythm in", m.detect[2], m.detect_thr[2], 1.0);
             ui.separator();
             ui.label(format!("kick  gate {:.0} trig {:.0}", m.kick.0, m.kick.1));
             ui.label(format!("snare gate {:.0} trig {:.0}", m.snare.0, m.snare.1));
