@@ -76,7 +76,15 @@ pub struct SpectralCfg {
     pub fms_hi: f32,
     pub sms_lo: f32,
     pub sms_hi: f32,
+    /// Сглаживание fms, сек (в дампе filter width 0.5).
+    #[serde(default = "default_fms_smooth")]
+    pub fms_smooth_s: f32,
+    /// Сглаживание sms, сек (в дампе trail ~10).
+    #[serde(default = "default_sms_smooth")]
+    pub sms_smooth_s: f32,
 }
+fn default_fms_smooth() -> f32 { 0.5 }
+fn default_sms_smooth() -> f32 { 10.0 }
 impl Default for SpectralCfg {
     fn default() -> Self {
         Self {
@@ -86,6 +94,8 @@ impl Default for SpectralCfg {
             fms_hi: 1000.0,
             sms_lo: 100.0,
             sms_hi: 1800.0,
+            fms_smooth_s: default_fms_smooth(),
+            sms_smooth_s: default_sms_smooth(),
         }
     }
 }
@@ -454,5 +464,42 @@ impl Config {
         let s = ron::ser::to_string_pretty(self, ron::ser::PrettyConfig::default())?;
         std::fs::write(path, s)?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn gain_plain() {
+        let g = GainCfg::new(0.1, 2.0, 0.5);
+        assert!((g.apply(1.0) - 2.7).abs() < 1e-5);
+    }
+
+    #[test]
+    fn gain_torange() {
+        let g = GainCfg::with_range(0.0, 1.0, 0.0, 0.0, 0.5);
+        assert!((g.apply(1.0) - 0.5).abs() < 1e-5);
+    }
+
+    #[test]
+    fn sigmoid_off_passes_x() {
+        let s = SigmoidCfg::new(false, 1.0, 5.0, 0.3);
+        assert_eq!(s.eval(0.42), 0.42);
+    }
+
+    #[test]
+    fn spectral_remap_clamp() {
+        let s = SpectralCfg::default();
+        assert_eq!(s.centroid(18.0), 0.0);
+        assert_eq!(s.centroid(32.0), 1.0);
+        assert_eq!(s.centroid(100.0), 1.0);
+    }
+
+    #[test]
+    fn extra_presets_load() {
+        Config::load_ron("presets/hall.ron").expect("hall");
+        Config::load_ron("presets/headphones.ron").expect("headphones");
     }
 }

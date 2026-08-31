@@ -646,8 +646,18 @@ impl eframe::App for App {
                 let c = &mut cfg.compressor.cfg;
                 ui.add(egui::Slider::new(&mut c.threshold_db, -60.0..=0.0).text("порог, дБ"))
                     .on_hover_text("тише порога не трогаем; громче - сжимаем");
-                ui.add(egui::Slider::new(&mut c.ratio, 0.05..=4.0).text("сжатие"))
-                    .on_hover_text("насколько давить пики (меньше 1 - сильнее компрессия в этой формуле)");
+                ui.add(egui::Slider::new(&mut c.ratio, 0.05..=4.0).text("ratio"))
+                    .on_hover_text(
+                        "как в дампе audiodyna, не классический 4:1.\n\
+                         1 = почти не трогает. Больше 1 - давит пики.\n\
+                         Меньше 1 - пики раздувает (формула 1/ratio - 1).",
+                    );
+                if c.ratio < 1.0 {
+                    ui.colored_label(
+                        egui::Color32::from_rgb(255, 160, 60),
+                        format!("ratio {:.2} < 1: пики громче, не тише", c.ratio),
+                    );
+                }
                 ui.add(egui::Slider::new(&mut c.makeup_db, -12.0..=24.0).text("компенсация, дБ"))
                     .on_hover_text("громкость после сжатия, чтобы уровень не просел");
             }
@@ -875,7 +885,13 @@ impl eframe::App for App {
                                 .on_hover_text("вычитается из RMS. Ниже порога уровень полосы = 0");
                             band_gain_ui(ui, &mut b.gain, live_gains[i], control_on);
                             ui.add(egui::Slider::new(&mut b.add, -1.0..=1.0).text("сдвиг после"))
-                                .on_hover_text("после clamp 0..100, до сглаживания. Отрицательный - глубже пол. Это уже /low /mid /high");
+                                .on_hover_text("после clamp 0..100, до сглаживания. Отрицательный - /low /mid /high уходят ниже 0. Для QLC есть тумблер clip >= 0.");
+                            if b.add < 0.0 {
+                                ui.colored_label(
+                                    egui::Color32::from_rgb(255, 160, 60),
+                                    format!("add {:+.2}: полоса может быть < 0", b.add),
+                                );
+                            }
                             ui.add(egui::Slider::new(&mut b.smooth_s, 0.0..=1.0).text("сглаживание, с"))
                                 .on_hover_text("инерция огибающей. Больше - лампы и OSC менее дёрганые, удар размазан");
                         })

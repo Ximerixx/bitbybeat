@@ -180,3 +180,68 @@ pub fn channels_for_send(channels: &[OscChannel], osc: &OscCfg) -> Vec<(String, 
         })
         .collect()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn frame() -> AnalysisFrame {
+        AnalysisFrame {
+            frame_id: 1,
+            levels: [-0.2, 0.5, 0.1],
+            kick: (1.0, 1.0),
+            snare: (0.0, 0.0),
+            rythm: (0.0, 0.0),
+            triggers_kick: (1.0, 0.0, 0.0),
+            triggers_snare: (0.0, 0.0, 0.0),
+            ..AnalysisFrame::default()
+        }
+    }
+
+    #[test]
+    fn snapshot_addresses_unique() {
+        let mut st = TriggerState::default();
+        let snap = build_snapshot(&frame(), &Config::default(), &mut st);
+        let mut addrs: Vec<_> = snap.channels.iter().map(|c| c.address.as_str()).collect();
+        addrs.sort();
+        let n = addrs.len();
+        addrs.dedup();
+        assert_eq!(addrs.len(), n);
+    }
+
+    #[test]
+    fn trigger4k_pulse_on_edge_only() {
+        let mut st = TriggerState::default();
+        let cfg = Config::default();
+        let f = frame();
+        let a = build_snapshot(&f, &cfg, &mut st);
+        assert_eq!(a.pulses.iter().filter(|p| p.address == "trigger4k").count(), 1);
+        let b = build_snapshot(&f, &cfg, &mut st);
+        assert_eq!(b.pulses.iter().filter(|p| p.address == "trigger4k").count(), 0);
+    }
+
+    #[test]
+    fn clip_low_at_zero() {
+        let mut osc = OscCfg::default();
+        osc.clip_levels_at_zero = true;
+        let ch = [OscChannel {
+            address: "low".into(),
+            value: -0.4,
+            kind: OscChannelKind::Continuous,
+        }];
+        let out = channels_for_send(&ch, &osc);
+        assert_eq!(out[0].1, 0.0);
+    }
+
+    #[test]
+    fn send_channels_off() {
+        let mut osc = OscCfg::default();
+        osc.set_sends("low", false);
+        let ch = [OscChannel {
+            address: "low".into(),
+            value: 1.0,
+            kind: OscChannelKind::Continuous,
+        }];
+        assert!(channels_for_send(&ch, &osc).is_empty());
+    }
+}

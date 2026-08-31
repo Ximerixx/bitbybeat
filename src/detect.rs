@@ -127,3 +127,45 @@ impl CounterBank {
         (self.c4.process(trig), self.c8.process(trig), self.c16.process(trig))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::DetectorCfg;
+
+    fn det(thr: f32) -> DetectorCfg {
+        DetectorCfg {
+            name: "t".into(),
+            threshold: thr,
+            retrigger_s: 0.0,
+            active: true,
+            hysteresis_enabled: false,
+            hysteresis: 0.0,
+            trigger_hold_enabled: false,
+            trigger_hold_s: 0.05,
+        }
+    }
+
+    #[test]
+    fn trigger_only_on_rise() {
+        let mut d = BeatDetector::default();
+        let cfg = det(0.5);
+        let dt = 1.0 / 60.0;
+        let a = d.process(0.1, &cfg, dt);
+        assert_eq!(a.1, 0.0);
+        let b = d.process(0.9, &cfg, dt);
+        assert_eq!(b.1, 1.0);
+        let c = d.process(0.9, &cfg, dt);
+        assert_eq!(c.1, 0.0);
+    }
+
+    #[test]
+    fn counter_hold_does_not_tick() {
+        let mut c = BeatCounter::new(4);
+        assert_eq!(c.process(1.0), 1.0);
+        assert_eq!(c.process(1.0), 0.0);
+        assert_eq!(c.process(0.0), 0.0);
+        assert_eq!(c.process(1.0), 0.0);
+        assert_eq!(c.count(), 2);
+    }
+}

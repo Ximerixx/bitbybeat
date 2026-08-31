@@ -40,6 +40,8 @@ fn run(shared: Arc<Shared>) {
     let mut snare_counts = CounterBank::default();
     let mut controller = Controller::default();
     let mut spectrum = Spectrum::new(FFT_SIZE);
+    let mut fms_smooth = crate::dsp::SmoothFilter::default();
+    let mut sms_smooth = crate::dsp::SmoothFilter::default();
     let mut trigger_state = TriggerState::default();
     let mut frame_id: u64 = 0;
 
@@ -128,8 +130,11 @@ fn run(shared: Arc<Shared>) {
             spectrum.push_block(&frame);
         }
         let centroid = cfg.spectral.centroid(spectrum.centroid_bins);
-        let fms = cfg.spectral.fms(spectrum.energy);
-        let sms = cfg.spectral.sms(spectrum.energy);
+        let e = spectrum.energy;
+        let fms_e = fms_smooth.process(e, cfg.spectral.fms_smooth_s.max(0.0), dt);
+        let sms_e = sms_smooth.process(e, cfg.spectral.sms_smooth_s.max(0.0), dt);
+        let fms = cfg.spectral.fms(fms_e);
+        let sms = cfg.spectral.sms(sms_e);
 
         let (kick_thr, snare_thr) = if cfg.control.enabled {
             (ctl.kick_thresh, ctl.snare_thresh)

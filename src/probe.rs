@@ -457,6 +457,11 @@ pub fn spectral_knobs(ui: &mut egui::Ui, cfg: &mut Config, m: &Metrics) -> bool 
         dirty |= ui.add(egui::DragValue::new(&mut s.sms_lo).speed(1.0).prefix("sms lo ")).changed();
         dirty |= ui.add(egui::DragValue::new(&mut s.sms_hi).speed(1.0).prefix("sms hi ")).changed();
     });
+    ui.horizontal(|ui| {
+        dirty |= ui.add(egui::DragValue::new(&mut s.fms_smooth_s).speed(0.05).prefix("fms сглаж. ")).changed();
+        dirty |= ui.add(egui::DragValue::new(&mut s.sms_smooth_s).speed(0.1).prefix("sms сглаж. ")).changed();
+    });
+    ui.weak("fms быстрее, sms тянется. Одна энергия спектра, разное окно.");
     dirty
 }
 
