@@ -6,7 +6,6 @@ use crate::shared::Metrics;
 use eframe::egui;
 use egui_plot::{Line, Plot, PlotPoints, Points};
 use std::collections::VecDeque;
-use std::time::Instant;
 
 const HIST: usize = 240;
 
@@ -162,14 +161,26 @@ fn map_out(id: ProbeId, x: f32, cfg: &Config) -> f32 {
     }
 }
 
-/// ПКМ по виджету открывает лупу.
+/// ПКМ над блоком (даже если клик съел слайдер/график).
 pub fn open_on_right_click(response: &egui::Response, id: ProbeId, slot: &mut Option<ProbeId>) {
-    if response.secondary_clicked() {
+    let over = response.hovered() || response.contains_pointer();
+    let rmb = response.ctx.input(|i| i.pointer.secondary_clicked());
+    if over && rmb {
         *slot = Some(id);
     }
 }
 
-/// Блок маппера + ПКМ = лупа. Возвращает, менялся ли конфиг.
+pub fn lupa_button(ui: &mut egui::Ui, id: ProbeId, slot: &mut Option<ProbeId>) {
+    if ui
+        .small_button("лупа")
+        .on_hover_text("график входа/выхода по времени")
+        .clicked()
+    {
+        *slot = Some(id);
+    }
+}
+
+/// Блок маппера + ПКМ / кнопка лупа. Возвращает, менялся ли конфиг.
 pub fn mapper_ui(
     ui: &mut egui::Ui,
     title: &str,
@@ -180,9 +191,11 @@ pub fn mapper_ui(
 ) -> bool {
     let mut dirty = false;
     let r = ui.group(|ui| {
-        ui.strong(title);
+        ui.horizontal(|ui| {
+            ui.strong(title);
+            lupa_button(ui, id, slot);
+        });
         ui.weak(hint);
-        ui.weak("ПКМ - вход/выход");
         dirty |= gain_knobs(ui, g);
     })
     .response;
@@ -257,6 +270,7 @@ pub fn sigmoid_ui(
                 .on_hover_text("вкл - сигмоида; выкл - значение проходит линейно (как есть)")
                 .changed();
             ui.strong(label);
+            lupa_button(ui, id, slot);
             if ui
                 .small_button("окно")
                 .on_hover_text("открыть в отдельном окне с большим графиком")
@@ -457,12 +471,18 @@ fn plot_io(ui: &mut egui::Ui, id: ProbeId, hist: &ProbeHistory, cfg: &Config, vi
 
 pub struct ProbeUi<'a> {
     pub slot: &'a mut Option<ProbeId>,
-    pub opened: &'a mut Instant,
+    pub entered: &'a mut bool,
     pub hist: &'a ProbeHistory,
     pub metrics: &'a Metrics,
 }
 
-/// Лупа: сверху вход, в центре крутилки, снизу выход. Ушёл курсор и не тянешь - закрыть.
+fn close_probe(slot: &mut Option<ProbeId>, entered: &mut bool) {
+    *slot = None;
+    *entered = false;
+}
+
+/// Лупа: сверху вход, в центре крутилки, снизу выход.
+/// Крестик / Esc всегда закрывают. Уход курсора - только после того, как курсор уже был внутри.
 pub fn popup(ctx: &egui::Context, ui_state: ProbeUi<'_>, cfg: &mut Config) -> bool {
     let Some(id) = *ui_state.slot else { return false };
     let (vin, vout) = live(id, ui_state.metrics, cfg);
@@ -478,33 +498,39 @@ pub fn popup(ctx: &egui::Context, ui_state: ProbeUi<'_>, cfg: &mut Config) -> bo
             ui.separator();
             dirty |= knobs_for(ui, id, cfg, ui_state.metrics);
             ui.separator();
-            ui.weak("крутилки здесь те же, что в панелях. ПКМ по блоку открывает лупу.");
+            ui.weak("кнопка лупа или ПКМ по блоку. Esc / крестик - закрыть.");
         });
-    if !open {
-        *ui_state.slot = None;
+    if !open || ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+        close_probe(ui_state.slot, ui_state.entered);
         return dirty;
     }
     let hovered = inner.as_ref().is_some_and(|i| i.response.hovered() || i.response.contains_pointer());
+    if hovered {
+        *ui_state.entered = true;
+    }
     let dragging = ctx.input(|i| i.pointer.any_down());
-    let young = ui_state.opened.elapsed().as_secs_f32() < 0.25;
-    if !hovered && !dragging && !young {
-        *ui_state.slot = None;
+    if *ui_state.entered && !hovered && !dragging {
+        close_probe(ui_state.slot, ui_state.entered);
     }
     dirty
 }
 
-fn node(ui: &mut egui::Ui, title: &str, id: ProbeId, slot: &mut Option<ProbeId>, opened: &mut Instant, body: impl FnOnce(&mut egui::Ui) -> bool) -> bool {
+fn node(ui: &mut egui::Ui, title: &str, id: ProbeId, slot: &mut Option<ProbeId>, entered: &mut bool, body: impl FnOnce(&mut egui::Ui) -> bool) -> bool {
     let mut dirty = false;
+    let was = *slot;
     let r = ui.group(|ui| {
-        ui.strong(title);
+        ui.horizontal(|ui| {
+            ui.strong(title);
+            lupa_button(ui, id, slot);
+        });
         dirty |= body(ui);
     })
     .response;
-    if r.secondary_clicked() {
-        *slot = Some(id);
-        *opened = Instant::now();
+    open_on_right_click(&r, id, slot);
+    r.on_hover_text("лупа или ПКМ - вход/выход");
+    if *slot == Some(id) && was != Some(id) {
+        *entered = false;
     }
-    r.on_hover_text("ПКМ - лупа вход/выход");
     dirty
 }
 
@@ -515,7 +541,7 @@ pub fn poster(
     cfg: &mut Config,
     m: &Metrics,
     slot: &mut Option<ProbeId>,
-    opened: &mut Instant,
+    entered: &mut bool,
 ) -> bool {
     let mut dirty = false;
     egui::Window::new("Схема тракта")
@@ -526,12 +552,12 @@ pub fn poster(
             ui.weak("Плакат: только смотреть цепочку и крутить. ПКМ по блоку - график входа/выхода.");
             egui::ScrollArea::both().show(ui, |ui| {
                 ui.horizontal(|ui| {
-                    dirty |= node(ui, "1. RMS входа", ProbeId::Corr, slot, opened, |ui| {
+                    dirty |= node(ui, "1. RMS входа", ProbeId::Corr, slot, entered, |ui| {
                         ui.label(format!("{:.4}", m.input_rms));
                         false
                     });
                     ui.label("->");
-                    dirty |= node(ui, "2. /dsprms", ProbeId::DspRms, slot, opened, |ui| {
+                    dirty |= node(ui, "2. /dsprms", ProbeId::DspRms, slot, entered, |ui| {
                         let mut d = ui.checkbox(&mut cfg.dsp_rmspower, "слать").changed();
                         d |= gain_knobs(ui, &mut cfg.dsp_gain);
                         ui.label(format!("сейчас {:.3}", m.dsp_rms));
@@ -540,11 +566,11 @@ pub fn poster(
                 });
                 ui.label("v  тот же RMS идёт в адаптив и в полосы");
                 ui.horizontal(|ui| {
-                    dirty |= node(ui, "3. масштаб зала", ProbeId::Corr, slot, opened, |ui| {
+                    dirty |= node(ui, "3. масштаб зала", ProbeId::Corr, slot, entered, |ui| {
                         gain_knobs(ui, &mut cfg.control.corr_gain)
                     });
                     ui.label("->");
-                    dirty |= node(ui, "4. инерция", ProbeId::Lag, slot, opened, |ui| {
+                    dirty |= node(ui, "4. инерция", ProbeId::Lag, slot, entered, |ui| {
                         let d = lag_knobs(ui, &mut cfg.control.lag);
                         ui.label(format!("L={:.3}", m.control.lag_value));
                         d
@@ -552,13 +578,13 @@ pub fn poster(
                 });
                 ui.label("v  L правит gain полос и пороги");
                 ui.horizontal(|ui| {
-                    dirty |= node(ui, "5a. gain low", ProbeId::GainLow, slot, opened, |ui| {
+                    dirty |= node(ui, "5a. gain low", ProbeId::GainLow, slot, entered, |ui| {
                         gain_knobs(ui, &mut cfg.control.low_gain)
                     });
-                    dirty |= node(ui, "5b. gain mid", ProbeId::GainMid, slot, opened, |ui| {
+                    dirty |= node(ui, "5b. gain mid", ProbeId::GainMid, slot, entered, |ui| {
                         gain_knobs(ui, &mut cfg.control.mid_gain)
                     });
-                    dirty |= node(ui, "5c. gain high", ProbeId::GainHigh, slot, opened, |ui| {
+                    dirty |= node(ui, "5c. gain high", ProbeId::GainHigh, slot, entered, |ui| {
                         gain_knobs(ui, &mut cfg.control.high_gain)
                     });
                 });
@@ -566,7 +592,7 @@ pub fn poster(
                 ui.horizontal(|ui| {
                     for i in 0..3u8 {
                         let name = ["6. low", "6. mid", "6. high"][i as usize];
-                        dirty |= node(ui, name, ProbeId::Band(i), slot, opened, |ui| {
+                        dirty |= node(ui, name, ProbeId::Band(i), slot, entered, |ui| {
                             let live = [m.control.low_gain, m.control.mid_gain, m.control.high_gain][i as usize];
                             band_knobs(ui, cfg, i as usize, cfg.control.enabled, live)
                         });
@@ -574,22 +600,22 @@ pub fn poster(
                 });
                 ui.separator();
                 ui.horizontal(|ui| {
-                    dirty |= node(ui, "7. к порогу kick", ProbeId::KickMap, slot, opened, |ui| {
+                    dirty |= node(ui, "7. к порогу kick", ProbeId::KickMap, slot, entered, |ui| {
                         gain_knobs(ui, &mut cfg.control.kick_map)
                     });
-                    dirty |= node(ui, "кривая kick", ProbeId::KickSig, slot, opened, |ui| {
+                    dirty |= node(ui, "кривая kick", ProbeId::KickSig, slot, entered, |ui| {
                         sigmoid_knobs(ui, &mut cfg.control.kick_sigmoid)
                     });
-                    dirty |= node(ui, "8. к порогу snare", ProbeId::SnareMap, slot, opened, |ui| {
+                    dirty |= node(ui, "8. к порогу snare", ProbeId::SnareMap, slot, entered, |ui| {
                         gain_knobs(ui, &mut cfg.control.snare_map)
                     });
-                    dirty |= node(ui, "кривая snare", ProbeId::SnareSig, slot, opened, |ui| {
+                    dirty |= node(ui, "кривая snare", ProbeId::SnareSig, slot, entered, |ui| {
                         sigmoid_knobs(ui, &mut cfg.control.snare_sigmoid)
                     });
-                    dirty |= node(ui, "к порогу rythm", ProbeId::RythmMap, slot, opened, |ui| {
+                    dirty |= node(ui, "к порогу rythm", ProbeId::RythmMap, slot, entered, |ui| {
                         gain_knobs(ui, &mut cfg.control.rythm_map)
                     });
-                    dirty |= node(ui, "кривая rythm", ProbeId::RythmSig, slot, opened, |ui| {
+                    dirty |= node(ui, "кривая rythm", ProbeId::RythmSig, slot, entered, |ui| {
                         sigmoid_knobs(ui, &mut cfg.control.rythm_sigmoid)
                     });
                 });

@@ -46,7 +46,7 @@ pub struct App {
     show_osc_channels: bool,
     show_poster: bool,
     probe: Option<ProbeId>,
-    probe_opened: Instant,
+    probe_entered: bool,
     probe_hist: ProbeHistory,
 }
 
@@ -82,7 +82,7 @@ impl App {
             show_osc_channels: false,
             show_poster: false,
             probe: None,
-            probe_opened: Instant::now(),
+            probe_entered: false,
             probe_hist: ProbeHistory::new(),
         }
     }
@@ -858,7 +858,7 @@ impl eframe::App for App {
                             ui.horizontal(|ui| {
                                 ui.checkbox(&mut b.active, "").on_hover_text("выкл - полоса даёт 0, детектор на ней молчит");
                                 ui.strong(&b.name);
-                                ui.weak("ПКМ - лупа");
+                                probe::lupa_button(ui, ProbeId::Band(i as u8), &mut probe_hit);
                             });
                             ui.add(egui::DragValue::new(&mut b.cutoff_hz).speed(1.0).suffix(" Hz"))
                                 .on_hover_text("частота среза фильтра этой полосы");
@@ -933,8 +933,12 @@ impl eframe::App for App {
                     &mut probe_hit,
                 );
                 ui.collapsing("инерция громкости", |ui| {
-                    ui.weak("После масштаба, до гейнов полос и порогов. Помнит прошлое: зал не прыгает каждый кадр. ПКМ - лупа.");
+                    ui.weak("После масштаба, до гейнов полос и порогов. Помнит прошлое: зал не прыгает каждый кадр.");
                     let lag_r = ui.group(|ui| {
+                        ui.horizontal(|ui| {
+                            ui.strong("инерция");
+                            probe::lupa_button(ui, ProbeId::Lag, &mut probe_hit);
+                        });
                         ui.add(egui::Slider::new(&mut c.lag.lag_up, 0.0..=10.0).text("вверх, медленнее"))
                             .on_hover_text("как быстро растём, когда стало громче");
                         ui.add(egui::Slider::new(&mut c.lag.lag_dn, 0.0..=10.0).text("вниз, медленнее"))
@@ -989,7 +993,7 @@ impl eframe::App for App {
 
         if let Some(id) = probe_hit {
             self.probe = Some(id);
-            self.probe_opened = Instant::now();
+            self.probe_entered = false;
         }
         if probe::poster(
             ctx,
@@ -997,7 +1001,7 @@ impl eframe::App for App {
             &mut self.cfg_edit,
             &m,
             &mut self.probe,
-            &mut self.probe_opened,
+            &mut self.probe_entered,
         ) {
             self.mark_dirty();
         }
@@ -1005,7 +1009,7 @@ impl eframe::App for App {
             ctx,
             ProbeUi {
                 slot: &mut self.probe,
-                opened: &mut self.probe_opened,
+                entered: &mut self.probe_entered,
                 hist: &self.probe_hist,
                 metrics: &m,
             },
