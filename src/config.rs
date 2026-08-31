@@ -297,8 +297,8 @@ pub struct OscCfg {
     pub transport: OscTransport,
     #[serde(default)]
     pub phase: OscPhaseCfg,
-    /// Включать `/bundleSeq` и `/bundleTime` в каждый bundle.
-    #[serde(default = "default_true")]
+    /// Включать `/bundleSeq` и `/bundleTime` в каждый bundle (QLC+ лучше без meta).
+    #[serde(default)]
     pub bundle_meta: bool,
     /// На OSC: low/mid/high не ниже 0 (внутренняя математика без изменений).
     #[serde(default)]
@@ -313,7 +313,7 @@ impl Default for OscCfg {
             bundle: true,
             transport: OscTransport::Udp,
             phase: OscPhaseCfg::default(),
-            bundle_meta: true,
+            bundle_meta: false,
             clip_levels_at_zero: false,
         }
     }

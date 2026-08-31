@@ -39,6 +39,8 @@ pub enum OscChannelKind {
 pub struct OscChannel {
     pub address: String,
     pub value: f32,
+    /// Семантика канала (триггер vs непрерывный); фильтр нулей снят под QLC+.
+    #[allow(dead_code)]
     pub kind: OscChannelKind,
 }
 
@@ -142,15 +144,11 @@ impl TriggerState {
     }
 }
 
-/// Отфильтровать каналы для отправки: триггеры с value≈0 пропускаем.
+/// Все каналы на каждый тик, включая триггеры с 0 (QLC+ держит последнее значение).
 /// `clip_levels` — low/mid/high clamp к 0 только на выход OSC.
 pub fn channels_for_send(channels: &[OscChannel], clip_levels: bool) -> Vec<(String, f32)> {
     channels
         .iter()
-        .filter(|c| match c.kind {
-            OscChannelKind::Continuous => true,
-            OscChannelKind::Trigger => c.value > 0.5,
-        })
         .map(|c| {
             let mut v = c.value;
             if clip_levels && matches!(c.address.as_str(), "low" | "mid" | "high") {

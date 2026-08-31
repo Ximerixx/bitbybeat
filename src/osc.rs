@@ -1,4 +1,4 @@
-//! OSC-выход: один bundle на тик, meta seq/time, без нулевых триггеров.
+//! OSC-выход: один bundle на тик. UDP — send_to без connect (как в alpha / QLC+).
 
 use crate::config::{OscCfg, OscPhaseCfg};
 use crate::diag;
@@ -7,13 +7,13 @@ use crate::shared::Shared;
 use anyhow::{Context, Result};
 use rosc::{encoder, OscBundle, OscMessage, OscPacket, OscTime, OscType};
 use std::io::Write;
-use std::net::{TcpStream, ToSocketAddrs, UdpSocket};
+use std::net::{SocketAddr, TcpStream, ToSocketAddrs, UdpSocket};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant};
 
 enum Transport {
-    Udp(UdpSocket),
+    Udp { socket: UdpSocket, dest: SocketAddr },
     Tcp(TcpStream),
 }
 
@@ -27,8 +27,9 @@ impl OscSender {
         match cfg.transport {
             crate::config::OscTransport::Udp => {
                 let socket = UdpSocket::bind("0.0.0.0:0").context("OSC UDP bind")?;
-                socket.connect(&addr).context("OSC UDP connect")?;
-                Ok(Self { transport: Transport::Udp(socket) })
+                Ok(Self {
+                    transport: Transport::Udp { socket, dest: addr },
+                })
             }
             crate::config::OscTransport::Tcp => {
                 let stream = TcpStream::connect(&addr).context("OSC TCP connect")?;
@@ -40,8 +41,8 @@ impl OscSender {
 
     fn send_raw(&mut self, buf: &[u8]) -> Result<()> {
         match &mut self.transport {
-            Transport::Udp(s) => {
-                s.send(buf)?;
+            Transport::Udp { socket, dest } => {
+                socket.send_to(buf, *dest)?;
             }
             Transport::Tcp(s) => {
                 let len = (buf.len() as u32).to_be_bytes();
@@ -66,13 +67,6 @@ impl OscSender {
 fn resolve(host: &str, port: u16) -> Result<std::net::SocketAddr> {
     let mut addrs = (host, port).to_socket_addrs().context("OSC resolve")?;
     addrs.next().context("OSC: no addresses")
-}
-
-fn wall_osc_time() -> OscTime {
-    let dur = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default();
-    let secs = dur.as_secs() as u32;
-    let frac = ((dur.subsec_nanos() as u64) << 32) / 1_000_000_000;
-    OscTime::from((secs, frac as u32))
 }
 
 fn quantize_phase(phase: f32, grid: f32) -> f32 {
@@ -214,7 +208,8 @@ fn run(shared: Arc<Shared>) {
                 pending_triggers.extend(snapshot.pulses.iter().cloned());
 
                 let seq = bundle_seq.fetch_add(1, Ordering::Relaxed) + 1;
-                let timetag = wall_osc_time();
+                // OSC immediate: QLC+ (и alpha) ждут (0, 1), не wall-clock NTP.
+                let timetag = OscTime::from((0u32, 1u32));
                 let packets = build_bundle_packets(
                     &snapshot,
                     &mut pending_triggers,
