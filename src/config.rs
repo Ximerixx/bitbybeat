@@ -67,6 +67,46 @@ impl Default for CompressorCfg {
     fn default() -> Self { Self { threshold_db: -20.6, ratio: 0.638, makeup_db: 6.9 } }
 }
 
+/// Ремап сырого спектра в 0..1 (как math14/math7/math6 в дампе). Цифры под конкретный вход.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct SpectralCfg {
+    pub centroid_lo: f32,
+    pub centroid_hi: f32,
+    pub fms_lo: f32,
+    pub fms_hi: f32,
+    pub sms_lo: f32,
+    pub sms_hi: f32,
+}
+impl Default for SpectralCfg {
+    fn default() -> Self {
+        Self {
+            centroid_lo: 18.0,
+            centroid_hi: 32.0,
+            fms_lo: 0.0,
+            fms_hi: 1000.0,
+            sms_lo: 100.0,
+            sms_hi: 1800.0,
+        }
+    }
+}
+impl SpectralCfg {
+    pub fn remap(x: f32, lo: f32, hi: f32) -> f32 {
+        if (hi - lo).abs() < 1e-9 {
+            return 0.0;
+        }
+        ((x - lo) / (hi - lo)).clamp(0.0, 1.0)
+    }
+    pub fn centroid(&self, bins: f32) -> f32 {
+        Self::remap(bins, self.centroid_lo, self.centroid_hi)
+    }
+    pub fn fms(&self, energy: f32) -> f32 {
+        Self::remap(energy, self.fms_lo, self.fms_hi)
+    }
+    pub fn sms(&self, energy: f32) -> f32 {
+        Self::remap(energy, self.sms_lo, self.sms_hi)
+    }
+}
+
 // gain config
 
 /// Аффинный множитель TD Math CHOP: `y = postoff + gain*(preoff + x)`, затем опц. remap 0..1 → torange.
@@ -363,6 +403,8 @@ pub struct Config {
     /// Частота отправки OSC, Гц (отдельный таймер, читает последний снимок).
     #[serde(default = "default_osc_rate")]
     pub osc_rate_hz: f32,
+    #[serde(default)]
+    pub spectral: SpectralCfg,
 }
 
 impl Default for Config {
@@ -398,6 +440,7 @@ impl Default for Config {
             osc: OscCfg::default(),
             compute_rate_hz: default_compute_rate(),
             osc_rate_hz: default_osc_rate(),
+            spectral: SpectralCfg::default(),
         }
     }
 }

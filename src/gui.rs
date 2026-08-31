@@ -670,6 +670,9 @@ impl eframe::App for App {
                 .on_hover_text("как часто считаем полосы и детекторы. Выше - быстрее отклик ламп и hold");
             ui.add(egui::Slider::new(&mut cfg.osc_rate_hz, 1.0..=480.0).text("отправка OSC, Гц"))
                 .on_hover_text("как часто шлём последний снимок в QLC. Не обязана совпадать с анализом");
+            if probe::spectral_ui(ui, cfg, &m, &mut probe_hit) {
+                panel_dirty = true;
+            }
 
             ui.separator();
             ui.heading("OSC");

@@ -127,9 +127,9 @@ fn run(shared: Arc<Shared>) {
         if !frame.is_empty() {
             spectrum.push_block(&frame);
         }
-        let centroid = normalize(spectrum.centroid_bins, 18.0, 32.0);
-        let fms = normalize(spectrum.energy, 0.0, 1000.0);
-        let sms = normalize(spectrum.energy, 100.0, 1800.0);
+        let centroid = cfg.spectral.centroid(spectrum.centroid_bins);
+        let fms = cfg.spectral.fms(spectrum.energy);
+        let sms = cfg.spectral.sms(spectrum.energy);
 
         let (kick_thr, snare_thr) = if cfg.control.enabled {
             (ctl.kick_thresh, ctl.snare_thresh)
@@ -276,12 +276,4 @@ fn apply_compressor(frame: &mut [f32], cfg: &crate::config::CompressorCfg) {
         }
         *s *= makeup;
     }
-}
-
-#[inline]
-fn normalize(x: f32, lo: f32, hi: f32) -> f32 {
-    if (hi - lo).abs() < 1e-9 {
-        return 0.0;
-    }
-    ((x - lo) / (hi - lo)).clamp(0.0, 1.0)
 }

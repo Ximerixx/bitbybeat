@@ -24,6 +24,7 @@ pub enum ProbeId {
     KickSig,
     SnareSig,
     RythmSig,
+    Spectrum,
 }
 
 impl ProbeId {
@@ -45,6 +46,7 @@ impl ProbeId {
             Self::KickSig => "кривая kick",
             Self::SnareSig => "кривая snare",
             Self::RythmSig => "кривая rythm",
+            Self::Spectrum => "калибровка спектра",
         }
     }
 }
@@ -59,6 +61,7 @@ pub struct ProbeHistory {
     kick_x: VecDeque<f32>,
     snare_x: VecDeque<f32>,
     rythm_x: VecDeque<f32>,
+    centroid: VecDeque<f32>,
 }
 
 impl ProbeHistory {
@@ -72,6 +75,7 @@ impl ProbeHistory {
             kick_x: VecDeque::with_capacity(HIST),
             snare_x: VecDeque::with_capacity(HIST),
             rythm_x: VecDeque::with_capacity(HIST),
+            centroid: VecDeque::with_capacity(HIST),
         }
     }
 
@@ -89,6 +93,7 @@ impl ProbeHistory {
         push_cap(&mut self.kick_x, m.control.kick_x);
         push_cap(&mut self.snare_x, m.control.snare_x);
         push_cap(&mut self.rythm_x, m.control.rythm_x);
+        push_cap(&mut self.centroid, m.centroid);
     }
 }
 
@@ -122,6 +127,7 @@ fn live(id: ProbeId, m: &Metrics, cfg: &Config) -> (f32, f32) {
         ProbeId::KickSig => (m.control.kick_x, cfg.control.kick_sigmoid.eval(m.control.kick_x)),
         ProbeId::SnareSig => (m.control.snare_x, cfg.control.snare_sigmoid.eval(m.control.snare_x)),
         ProbeId::RythmSig => (m.control.rythm_x, cfg.control.rythm_sigmoid.eval(m.control.rythm_x)),
+        ProbeId::Spectrum => (m.centroid, m.fms),
     }
 }
 
@@ -134,6 +140,7 @@ fn series_in<'a>(id: ProbeId, h: &'a ProbeHistory) -> &'a VecDeque<f32> {
         ProbeId::KickSig => &h.kick_x,
         ProbeId::SnareSig => &h.snare_x,
         ProbeId::RythmSig => &h.rythm_x,
+        ProbeId::Spectrum => &h.centroid,
     }
 }
 
@@ -158,6 +165,7 @@ fn map_out(id: ProbeId, x: f32, cfg: &Config) -> f32 {
         ProbeId::KickSig => cfg.control.kick_sigmoid.eval(x),
         ProbeId::SnareSig => cfg.control.snare_sigmoid.eval(x),
         ProbeId::RythmSig => cfg.control.rythm_sigmoid.eval(x),
+        ProbeId::Spectrum => x,
     }
 }
 
@@ -425,7 +433,47 @@ fn knobs_for(ui: &mut egui::Ui, id: ProbeId, cfg: &mut Config, m: &Metrics) -> b
             d |= sigmoid_knobs(ui, &mut cfg.control.rythm_sigmoid);
             d
         }
+        ProbeId::Spectrum => spectral_knobs(ui, cfg, m),
     }
+}
+
+pub fn spectral_knobs(ui: &mut egui::Ui, cfg: &mut Config, m: &Metrics) -> bool {
+    let s = &mut cfg.spectral;
+    let mut dirty = false;
+    ui.label(format!(
+        "сейчас  centroid {:.3}  fms {:.3}  sms {:.3}",
+        m.centroid, m.fms, m.sms
+    ));
+    ui.weak("fromrange: сырое значение внутри lo..hi становится 0..1 на OSC");
+    ui.horizontal(|ui| {
+        dirty |= ui.add(egui::DragValue::new(&mut s.centroid_lo).speed(0.1).prefix("cen lo ")).changed();
+        dirty |= ui.add(egui::DragValue::new(&mut s.centroid_hi).speed(0.1).prefix("cen hi ")).changed();
+    });
+    ui.horizontal(|ui| {
+        dirty |= ui.add(egui::DragValue::new(&mut s.fms_lo).speed(1.0).prefix("fms lo ")).changed();
+        dirty |= ui.add(egui::DragValue::new(&mut s.fms_hi).speed(1.0).prefix("fms hi ")).changed();
+    });
+    ui.horizontal(|ui| {
+        dirty |= ui.add(egui::DragValue::new(&mut s.sms_lo).speed(1.0).prefix("sms lo ")).changed();
+        dirty |= ui.add(egui::DragValue::new(&mut s.sms_hi).speed(1.0).prefix("sms hi ")).changed();
+    });
+    dirty
+}
+
+/// Блок калибровки спектра + ПКМ / лупа.
+pub fn spectral_ui(ui: &mut egui::Ui, cfg: &mut Config, m: &Metrics, slot: &mut Option<ProbeId>) -> bool {
+    let mut dirty = false;
+    let r = ui.group(|ui| {
+        ui.horizontal(|ui| {
+            ui.strong("калибровка спектра");
+            lupa_button(ui, ProbeId::Spectrum, slot);
+        });
+        ui.weak("ремап центроида и энергии в 0..1. Цифры из дампа, под зал крутятся тут.");
+        dirty |= spectral_knobs(ui, cfg, m);
+    })
+    .response;
+    open_on_right_click(&r, ProbeId::Spectrum, slot);
+    dirty
 }
 
 fn plot_io(ui: &mut egui::Ui, id: ProbeId, hist: &ProbeHistory, cfg: &Config, vin: f32, vout: f32) {
