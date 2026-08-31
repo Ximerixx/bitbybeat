@@ -2,7 +2,7 @@
     input: (
         source: Device,
         device: None,
-        pulse_source: Some("alsa_output.pci-0000_08_00.6.pro-output-0.monitor"),
+        pulse_source: None,
         prefer_monitor: true,
         channels_pick: [],
         file_path: None,
@@ -29,7 +29,7 @@
             cutoff_hz: 150.0,
             rolloff_db_oct: 20.0,
             resonance: 0.707,
-            pregain: 2.0,
+            pregain: 1.0,
             threshold: 0.116,
             gain: 1.84,
             add: -0.492,
@@ -72,7 +72,7 @@
             hysteresis_enabled: false,
             hysteresis: 0.02,
             trigger_hold_enabled: true,
-            trigger_hold_s: 0.05,
+            trigger_hold_s: 0.06,
         ),
         (
             name: "snare",

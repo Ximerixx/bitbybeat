@@ -546,7 +546,7 @@ pub fn poster(
     let mut dirty = false;
     egui::Window::new("Схема тракта")
         .open(open)
-        .default_size([920.0, 640.0])
+        .default_size([640.0, 860.0])
         .resizable(true)
         .show(ctx, |ui| {
             ui.weak("Плакат: только смотреть цепочку и крутить. ПКМ по блоку - график входа/выхода.");
@@ -577,7 +577,7 @@ pub fn poster(
                     });
                 });
                 ui.label("v  L правит gain полос и пороги");
-                ui.horizontal(|ui| {
+                ui.vertical(|ui| {
                     dirty |= node(ui, "5a. gain low", ProbeId::GainLow, slot, entered, |ui| {
                         gain_knobs(ui, &mut cfg.control.low_gain)
                     });
@@ -589,7 +589,7 @@ pub fn poster(
                     });
                 });
                 ui.separator();
-                ui.horizontal(|ui| {
+                ui.vertical(|ui| {
                     for i in 0..3u8 {
                         let name = ["6. low", "6. mid", "6. high"][i as usize];
                         dirty |= node(ui, name, ProbeId::Band(i), slot, entered, |ui| {
@@ -599,24 +599,30 @@ pub fn poster(
                     }
                 });
                 ui.separator();
-                ui.horizontal(|ui| {
-                    dirty |= node(ui, "7. к порогу kick", ProbeId::KickMap, slot, entered, |ui| {
-                        gain_knobs(ui, &mut cfg.control.kick_map)
+                ui.vertical(|ui| {
+                    ui.horizontal(|ui| {
+                        dirty |= node(ui, "7. порог kick", ProbeId::KickMap, slot, entered, |ui| {
+                            gain_knobs(ui, &mut cfg.control.kick_map)
+                        });
+                        dirty |= node(ui, "кривая kick", ProbeId::KickSig, slot, entered, |ui| {
+                            sigmoid_knobs(ui, &mut cfg.control.kick_sigmoid)
+                        });
                     });
-                    dirty |= node(ui, "кривая kick", ProbeId::KickSig, slot, entered, |ui| {
-                        sigmoid_knobs(ui, &mut cfg.control.kick_sigmoid)
+                    ui.horizontal(|ui| {
+                        dirty |= node(ui, "7. порог snare", ProbeId::SnareMap, slot, entered, |ui| {
+                            gain_knobs(ui, &mut cfg.control.snare_map)
+                        });
+                        dirty |= node(ui, "кривая snare", ProbeId::SnareSig, slot, entered, |ui| {
+                            sigmoid_knobs(ui, &mut cfg.control.snare_sigmoid)
+                        });
                     });
-                    dirty |= node(ui, "8. к порогу snare", ProbeId::SnareMap, slot, entered, |ui| {
-                        gain_knobs(ui, &mut cfg.control.snare_map)
-                    });
-                    dirty |= node(ui, "кривая snare", ProbeId::SnareSig, slot, entered, |ui| {
-                        sigmoid_knobs(ui, &mut cfg.control.snare_sigmoid)
-                    });
-                    dirty |= node(ui, "к порогу rythm", ProbeId::RythmMap, slot, entered, |ui| {
-                        gain_knobs(ui, &mut cfg.control.rythm_map)
-                    });
-                    dirty |= node(ui, "кривая rythm", ProbeId::RythmSig, slot, entered, |ui| {
-                        sigmoid_knobs(ui, &mut cfg.control.rythm_sigmoid)
+                    ui.horizontal(|ui| {
+                        dirty |= node(ui, "7. порог rythm", ProbeId::RythmMap, slot, entered, |ui| {
+                            gain_knobs(ui, &mut cfg.control.rythm_map)
+                        });
+                        dirty |= node(ui, "кривая rythm", ProbeId::RythmSig, slot, entered, |ui| {
+                            sigmoid_knobs(ui, &mut cfg.control.rythm_sigmoid)
+                        });
                     });
                 });
                 ui.separator();
