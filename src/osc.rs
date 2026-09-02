@@ -33,7 +33,10 @@ impl OscSender {
             }
             crate::config::OscTransport::Tcp => {
                 let stream = TcpStream::connect(&addr).context("OSC TCP connect")?;
-                stream.set_nodelay(true).ok();
+                if let Err(e) = stream.set_nodelay(true) {
+                    // Не фатально: соединение работает, но пакеты могут буферизоваться Nagle.
+                    diag::warn("osc", format!("tcp set_nodelay failed: {e}"));
+                }
                 Ok(Self { transport: Transport::Tcp(stream) })
             }
         }
