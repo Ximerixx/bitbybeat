@@ -75,7 +75,8 @@ pub struct BeatCounter {
 }
 impl BeatCounter {
     pub fn new(modulo: u32) -> Self {
-        Self { modulo, count: 0, prev_high: false, trigger: 0.0 }
+        // `count % 0` — паника целочисленного деления, а `phase()` дал бы NaN.
+        Self { modulo: modulo.max(1), count: 0, prev_high: false, trigger: 0.0 }
     }
 
     /// Текущая позиция в цикле 1..=modulo (0 если ещё не было триггеров).
@@ -167,5 +168,76 @@ mod tests {
         assert_eq!(c.process(0.0), 0.0);
         assert_eq!(c.process(1.0), 0.0);
         assert_eq!(c.count(), 2);
+    }
+
+    #[test]
+    fn counter_with_zero_modulo_does_not_panic() {
+        let mut c = BeatCounter::new(0);
+        assert_eq!(c.modulo(), 1);
+        assert_eq!(c.process(1.0), 1.0);
+        assert!(c.phase().is_finite());
+    }
+
+    #[test]
+    fn counter_wraps_at_modulo() {
+        let mut c = BeatCounter::new(4);
+        for _ in 0..4 {
+            c.process(0.0);
+            c.process(1.0);
+        }
+        assert_eq!(c.count(), 4);
+        c.process(0.0);
+        c.process(1.0);
+        assert_eq!(c.count(), 1);
+    }
+
+    #[test]
+    fn phase_spans_zero_to_just_under_one() {
+        let mut c = BeatCounter::new(4);
+        assert_eq!(c.phase(), 0.0);
+        c.process(1.0);
+        assert_eq!(c.phase(), 0.0);
+        c.process(0.0);
+        c.process(1.0);
+        assert_eq!(c.phase(), 0.25);
+    }
+
+    #[test]
+    fn inactive_detector_stays_silent_and_resets() {
+        let mut d = BeatDetector::default();
+        let mut cfg = det(0.5);
+        assert_eq!(d.process(0.9, &cfg, 0.01).1, 1.0);
+        cfg.active = false;
+        assert_eq!(d.process(0.9, &cfg, 0.01), (0.0, 0.0));
+        cfg.active = true;
+        // После выключения фронт должен срабатывать заново, а не считаться «уже поднятым».
+        assert_eq!(d.process(0.9, &cfg, 0.01).1, 1.0);
+    }
+
+    #[test]
+    fn hysteresis_keeps_gate_open_below_threshold() {
+        let mut d = BeatDetector::default();
+        let mut cfg = det(0.5);
+        cfg.hysteresis_enabled = true;
+        cfg.hysteresis = 0.2;
+        assert_eq!(d.process(0.6, &cfg, 0.01).0, 1.0);
+        // 0.4 ниже порога, но выше порога отпускания 0.3 — гейт держится.
+        assert_eq!(d.process(0.4, &cfg, 0.01).0, 1.0);
+        assert_eq!(d.process(0.2, &cfg, 0.01).0, 0.0);
+    }
+
+    #[test]
+    fn retrigger_blocks_repeated_impulses() {
+        let mut d = BeatDetector::default();
+        let mut cfg = det(0.5);
+        cfg.retrigger_s = 0.1;
+        assert_eq!(d.process(0.9, &cfg, 0.01).1, 1.0);
+        d.process(0.0, &cfg, 0.01);
+        // Новый фронт внутри окна retrigger не должен давать импульс.
+        assert_eq!(d.process(0.9, &cfg, 0.01).1, 0.0);
+        for _ in 0..12 {
+            d.process(0.0, &cfg, 0.01);
+        }
+        assert_eq!(d.process(0.9, &cfg, 0.01).1, 1.0);
     }
 }

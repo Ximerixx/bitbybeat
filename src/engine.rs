@@ -18,7 +18,63 @@ const FFT_SIZE: usize = 1024;
 const RING_CAP: usize = 48000 * 2;
 
 pub fn spawn(shared: Arc<Shared>) -> std::thread::JoinHandle<()> {
-    std::thread::spawn(move || run(shared))
+    std::thread::spawn(move || {
+        // Паника в движке иначе убивала бы поток молча: GUI продолжал бы показывать
+        // застывшие метрики без единого намёка на причину.
+        let guarded = std::panic::AssertUnwindSafe(|| run(Arc::clone(&shared)));
+        if let Err(payload) = std::panic::catch_unwind(guarded) {
+            let reason = panic_message(payload.as_ref());
+            diag::error("engine", format!("движок аварийно остановлен: {reason}"));
+            shared
+                .metrics
+                .note_engine_error(Some(format!("движок аварийно остановлен: {reason}")));
+        }
+    })
+}
+
+fn panic_message(payload: &(dyn std::any::Any + Send)) -> String {
+    if let Some(s) = payload.downcast_ref::<&str>() {
+        (*s).to_string()
+    } else if let Some(s) = payload.downcast_ref::<String>() {
+        s.clone()
+    } else {
+        "неизвестная причина".to_string()
+    }
+}
+
+/// Детектор по индексу с безопасным запасным вариантом.
+///
+/// Список приходит из пользовательского RON и может быть короче трёх — раньше это была паника.
+fn detector_or_disabled(detectors: &[crate::config::DetectorCfg], idx: usize, name: &str) -> crate::config::DetectorCfg {
+    detectors.get(idx).cloned().unwrap_or_else(|| crate::config::DetectorCfg {
+        name: name.into(),
+        threshold: 1.0,
+        retrigger_s: 0.0,
+        active: false,
+        hysteresis_enabled: false,
+        hysteresis: 0.0,
+        trigger_hold_enabled: false,
+        trigger_hold_s: 0.05,
+    })
+}
+
+/// Предупредить о неполном конфиге один раз на версию, а не на каждом тике.
+fn warn_incomplete_config(cfg: &crate::config::Config) {
+    if cfg.detectors.len() < 3 {
+        diag::warn(
+            "engine",
+            format!(
+                "в конфиге {} детектор(ов) вместо 3 — недостающие выключены",
+                cfg.detectors.len()
+            ),
+        );
+    }
+    if cfg.bands.len() < 3 {
+        diag::warn(
+            "engine",
+            format!("в конфиге {} полос(ы) вместо 3 — недостающие молчат", cfg.bands.len()),
+        );
+    }
 }
 
 fn run(shared: Arc<Shared>) {
@@ -31,6 +87,7 @@ fn run(shared: Arc<Shared>) {
         shared.metrics.note_engine_error(Some(e));
     }
 
+    warn_incomplete_config(&cfg0);
     let mut band_bank = BandBank::new(&cfg0.bands, sample_rate);
     let mut last_cfg_version = shared.config.version();
     let mut kick_det = BeatDetector::default();
@@ -89,6 +146,7 @@ fn run(shared: Arc<Shared>) {
 
         let cfg_version = shared.config.version();
         if cfg_version != last_cfg_version {
+            warn_incomplete_config(&cfg);
             band_bank.redesign(&cfg.bands, sample_rate);
             last_cfg_version = cfg_version;
             diag::debug("engine", format!("config v{cfg_version}: band_bank redesign"));
@@ -137,16 +195,13 @@ fn run(shared: Arc<Shared>) {
         let fms = cfg.spectral.fms(fms_e);
         let sms = cfg.spectral.sms(sms_e);
 
-        let (kick_thr, snare_thr) = if cfg.control.enabled {
-            (ctl.kick_thresh, ctl.snare_thresh)
-        } else {
-            (cfg.detectors[0].threshold, cfg.detectors[1].threshold)
-        };
-        let mut kd = cfg.detectors[0].clone();
-        kd.threshold = kick_thr;
-        let mut sd = cfg.detectors[1].clone();
-        sd.threshold = snare_thr;
-        let rd = cfg.detectors[2].clone();
+        let mut kd = detector_or_disabled(&cfg.detectors, 0, "kick");
+        let mut sd = detector_or_disabled(&cfg.detectors, 1, "snare");
+        let rd = detector_or_disabled(&cfg.detectors, 2, "rythm");
+        if cfg.control.enabled {
+            kd.threshold = ctl.kick_thresh;
+            sd.threshold = ctl.snare_thresh;
+        }
 
         let peak_decay = (-dt / 3.0).exp();
         flux_peak = (flux_peak * peak_decay).max(spectrum.flux).max(1e-6);
@@ -271,15 +326,20 @@ fn open_audio(
     }
 }
 
+/// Предел множителя компрессора, ±36 дБ. Без него `ratio` около нуля даёт показатель степени
+/// в сотни и `over.powf(...)` уходит в `inf`, после чего NaN расползается по всему DSP.
+const MAX_COMP_GAIN: f32 = 64.0;
+
 fn apply_compressor(frame: &mut [f32], cfg: &crate::config::CompressorCfg) {
     let thr = 10f32.powf(cfg.threshold_db / 20.0);
     let makeup = 10f32.powf(cfg.makeup_db / 20.0);
     let ratio = cfg.ratio.max(1e-3);
+    let exponent = 1.0 / ratio - 1.0;
     for s in frame.iter_mut() {
         let a = s.abs();
         if a > thr {
             let over = a / thr;
-            let comp = over.powf(1.0 / ratio - 1.0);
+            let comp = over.powf(exponent).clamp(1.0 / MAX_COMP_GAIN, MAX_COMP_GAIN);
             *s *= comp;
         }
         *s *= makeup;
@@ -289,5 +349,84 @@ fn apply_compressor(frame: &mut [f32], cfg: &crate::config::CompressorCfg) {
 fn apply_input_gain(frame: &mut [f32], g: &crate::config::GainCfg) {
     for s in frame.iter_mut() {
         *s = g.apply(*s);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::Config;
+
+    #[test]
+    fn detector_lookup_returns_configured_entry() {
+        let cfg = Config::default();
+        let kick = detector_or_disabled(&cfg.detectors, 0, "kick");
+        assert_eq!(kick.name, "kick");
+        assert_eq!(kick.threshold, cfg.detectors[0].threshold);
+    }
+
+    #[test]
+    fn detector_lookup_falls_back_when_preset_is_short() {
+        // Пресет из RON может содержать меньше трёх детекторов — раньше это была паника.
+        let cfg = Config::default();
+        let only_kick = &cfg.detectors[..1];
+        let snare = detector_or_disabled(only_kick, 1, "snare");
+        assert_eq!(snare.name, "snare");
+        assert!(!snare.active);
+    }
+
+    #[test]
+    fn detector_lookup_handles_empty_list() {
+        let rythm = detector_or_disabled(&[], 2, "rythm");
+        assert!(!rythm.active);
+        assert_eq!(rythm.threshold, 1.0);
+    }
+
+    #[test]
+    fn panic_message_reads_both_payload_shapes() {
+        let s: Box<dyn std::any::Any + Send> = Box::new("literal");
+        assert_eq!(panic_message(s.as_ref()), "literal");
+        let s: Box<dyn std::any::Any + Send> = Box::new(String::from("formatted"));
+        assert_eq!(panic_message(s.as_ref()), "formatted");
+        let s: Box<dyn std::any::Any + Send> = Box::new(42u8);
+        assert_eq!(panic_message(s.as_ref()), "неизвестная причина");
+    }
+
+    #[test]
+    fn input_gain_is_applied_per_sample() {
+        let mut frame = [1.0f32, 2.0];
+        apply_input_gain(&mut frame, &crate::config::GainCfg::new(0.0, 2.0, 1.0));
+        assert_eq!(frame, [3.0, 5.0]);
+    }
+
+    #[test]
+    fn compressor_leaves_signal_below_threshold_at_makeup_only() {
+        let cfg = crate::config::CompressorCfg { threshold_db: -6.0, ratio: 2.0, makeup_db: 0.0 };
+        let mut frame = [0.01f32];
+        apply_compressor(&mut frame, &cfg);
+        assert!((frame[0] - 0.01).abs() < 1e-6);
+    }
+
+    #[test]
+    fn compressor_stays_finite_at_degenerate_ratio() {
+        // ratio=0 раньше давал inf, который дальше превращался в NaN во всех полосах.
+        let cfg = crate::config::CompressorCfg { threshold_db: -20.0, ratio: 0.0, makeup_db: 0.0 };
+        let mut frame = [0.9f32];
+        apply_compressor(&mut frame, &cfg);
+        assert!(frame[0].is_finite());
+        assert!(frame[0].abs() <= 0.9 * MAX_COMP_GAIN);
+    }
+
+    #[test]
+    fn compressor_default_preset_is_unchanged_by_the_clamp() {
+        let cfg = crate::config::CompressorCfg::default();
+        let mut frame = [0.5f32];
+        apply_compressor(&mut frame, &cfg);
+        let expected = {
+            let thr = 10f32.powf(cfg.threshold_db / 20.0);
+            let makeup = 10f32.powf(cfg.makeup_db / 20.0);
+            0.5 * (0.5f32 / thr).powf(1.0 / cfg.ratio - 1.0) * makeup
+        };
+        assert!((frame[0] - expected).abs() < 1e-3, "got {}, want {expected}", frame[0]);
     }
 }

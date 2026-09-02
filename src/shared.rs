@@ -8,6 +8,42 @@ use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering}
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::Instant;
 
+/// Захват mutex с восстановлением после паники в другом потоке.
+///
+/// Отравленный lock не должен ронять аудио/OSC/GUI: данные под ним — метрики и снимки,
+/// частично записанное значение не нарушает инварианты и будет перезаписано следующим тиком.
+fn lock_or_recover<'a, T>(m: &'a Mutex<T>, name: &str) -> std::sync::MutexGuard<'a, T> {
+    match m.lock() {
+        Ok(g) => g,
+        Err(poisoned) => {
+            crate::diag::warn("shared", format!("mutex '{name}' poisoned, recovering"));
+            poisoned.into_inner()
+        }
+    }
+}
+
+/// Чтение RwLock с восстановлением после отравления (см. [`lock_or_recover`]).
+fn read_or_recover<'a, T>(r: &'a RwLock<T>, name: &str) -> std::sync::RwLockReadGuard<'a, T> {
+    match r.read() {
+        Ok(g) => g,
+        Err(poisoned) => {
+            crate::diag::warn("shared", format!("rwlock '{name}' poisoned on read, recovering"));
+            poisoned.into_inner()
+        }
+    }
+}
+
+/// Запись в RwLock с восстановлением после отравления (см. [`lock_or_recover`]).
+fn write_or_recover<'a, T>(r: &'a RwLock<T>, name: &str) -> std::sync::RwLockWriteGuard<'a, T> {
+    match r.write() {
+        Ok(g) => g,
+        Err(poisoned) => {
+            crate::diag::warn("shared", format!("rwlock '{name}' poisoned on write, recovering"));
+            poisoned.into_inner()
+        }
+    }
+}
+
 /// Число бинов спектра для GUI (фиксированный массив — без alloc на hot path).
 pub const SPECTRUM_DRAW_BINS: usize = 256;
 
@@ -170,7 +206,7 @@ impl MetricsDoubleBuffer {
     }
 
     pub fn note_engine_error(&self, err: Option<String>) {
-        *self.engine_error.lock().unwrap() = err;
+        *lock_or_recover(&self.engine_error, "engine_error") = err;
     }
 
     fn merge_osc_fields(&self, m: &mut Metrics) {
@@ -180,20 +216,20 @@ impl MetricsDoubleBuffer {
         m.osc_jitter_ms = f32::from_bits(self.osc_jitter_bits.load(Ordering::Relaxed));
         m.osc_send_latency_ms =
             f32::from_bits(self.osc_send_latency_bits.load(Ordering::Relaxed));
-        m.osc_last_error = self.osc_last_error.lock().unwrap().clone();
-        m.error = self.engine_error.lock().unwrap().clone();
+        m.osc_last_error = lock_or_recover(&self.osc_last_error, "osc_last_error").clone();
+        m.error = lock_or_recover(&self.engine_error, "engine_error").clone();
     }
 
     pub fn publish(&self, mut m: Metrics) {
         self.merge_osc_fields(&mut m);
         let idx = self.write_idx.load(Ordering::Relaxed);
-        *self.slots[idx].lock().unwrap() = m;
+        *lock_or_recover(&self.slots[idx], "metrics_slot") = m;
         self.write_idx.store(1 - idx, Ordering::Release);
     }
 
     pub fn copy_latest(&self, dst: &mut Metrics) {
         let idx = 1 - self.write_idx.load(Ordering::Acquire);
-        let src = self.slots[idx].lock().unwrap();
+        let src = lock_or_recover(&self.slots[idx], "metrics_slot");
         src.copy_from(dst);
         self.merge_osc_fields(dst);
     }
@@ -204,7 +240,7 @@ impl MetricsDoubleBuffer {
     }
 
     pub fn record_osc_err(&self, msg: String) {
-        *self.osc_last_error.lock().unwrap() = Some(msg);
+        *lock_or_recover(&self.osc_last_error, "osc_last_error") = Some(msg);
         self.osc_send_err.fetch_add(1, Ordering::Relaxed);
     }
 
@@ -235,11 +271,11 @@ impl ConfigHandle {
 
     /// Для engine/osc: дешёвое чтение без клонирования всего Config.
     pub fn load(&self) -> Arc<Config> {
-        Arc::clone(&*self.inner.read().unwrap())
+        Arc::clone(&read_or_recover(&self.inner, "config_inner"))
     }
 
     pub fn store(&self, config: Config) {
-        *self.inner.write().unwrap() = Arc::new(config);
+        *write_or_recover(&self.inner, "config_inner") = Arc::new(config);
         self.version.fetch_add(1, Ordering::Release);
     }
 
@@ -265,13 +301,13 @@ impl OscDoubleBuffer {
 
     pub fn publish(&self, snapshot: OscSnapshot) {
         let idx = self.write_idx.load(Ordering::Relaxed);
-        *self.slots[idx].lock().unwrap() = Arc::new(snapshot);
+        *lock_or_recover(&self.slots[idx], "osc_slot") = Arc::new(snapshot);
         self.write_idx.store(1 - idx, Ordering::Release);
     }
 
     pub fn latest(&self) -> Arc<OscSnapshot> {
         let idx = 1 - self.write_idx.load(Ordering::Acquire);
-        Arc::clone(&*self.slots[idx].lock().unwrap())
+        Arc::clone(&lock_or_recover(&self.slots[idx], "osc_slot"))
     }
 }
 
@@ -325,11 +361,11 @@ impl TriggerQueue {
         if pulses.is_empty() {
             return;
         }
-        self.pending.lock().unwrap().extend(pulses);
+        lock_or_recover(&self.pending, "trigger_pending").extend(pulses);
     }
 
     pub fn drain(&self) -> Vec<crate::osc_map::TriggerPulse> {
-        std::mem::take(&mut *self.pending.lock().unwrap())
+        std::mem::take(&mut *lock_or_recover(&self.pending, "trigger_pending"))
     }
 }
 
@@ -356,5 +392,141 @@ impl Shared {
             running: AtomicBool::new(true),
             restart_audio: AtomicBool::new(false),
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn metrics_survive_poisoned_slot() {
+        let buf = Arc::new(MetricsDoubleBuffer::new());
+        let b = Arc::clone(&buf);
+        let _ = std::thread::spawn(move || {
+            let _g = b.slots[0].lock().unwrap();
+            panic!("poison the metrics slot");
+        })
+        .join();
+
+        let mut m = Metrics::default();
+        m.sample_rate = 44100.0;
+        buf.publish(m);
+
+        let mut dst = Metrics::default();
+        buf.copy_latest(&mut dst);
+        assert_eq!(dst.sample_rate, 44100.0);
+    }
+
+    #[test]
+    fn engine_error_survives_poisoned_lock() {
+        let buf = Arc::new(MetricsDoubleBuffer::new());
+        let b = Arc::clone(&buf);
+        let _ = std::thread::spawn(move || {
+            let _g = b.engine_error.lock().unwrap();
+            panic!("poison the engine error slot");
+        })
+        .join();
+
+        buf.note_engine_error(Some("device lost".into()));
+        let mut dst = Metrics::default();
+        buf.copy_latest(&mut dst);
+        assert_eq!(dst.error.as_deref(), Some("device lost"));
+    }
+
+    #[test]
+    fn osc_error_counter_survives_poisoned_lock() {
+        let buf = Arc::new(MetricsDoubleBuffer::new());
+        let b = Arc::clone(&buf);
+        let _ = std::thread::spawn(move || {
+            let _g = b.osc_last_error.lock().unwrap();
+            panic!("poison the osc error slot");
+        })
+        .join();
+
+        buf.record_osc_err("send failed".into());
+        let mut dst = Metrics::default();
+        buf.copy_latest(&mut dst);
+        assert_eq!(dst.osc_last_error.as_deref(), Some("send failed"));
+        assert_eq!(dst.osc_send_err, 1);
+    }
+
+    #[test]
+    fn config_handle_survives_poisoned_rwlock() {
+        let handle = Arc::new(ConfigHandle::new(Config::default()));
+        let h = Arc::clone(&handle);
+        let _ = std::thread::spawn(move || {
+            let _g = h.inner.write().unwrap();
+            panic!("poison the config lock");
+        })
+        .join();
+
+        let mut cfg = Config::default();
+        cfg.osc_rate_hz = 90.0;
+        handle.store(cfg);
+        assert_eq!(handle.load().osc_rate_hz, 90.0);
+        assert_eq!(handle.version(), 1);
+    }
+
+    #[test]
+    fn osc_snapshot_buffer_survives_poisoned_lock() {
+        let buf = Arc::new(OscDoubleBuffer::new());
+        let b = Arc::clone(&buf);
+        let _ = std::thread::spawn(move || {
+            let _g = b.slots[0].lock().unwrap();
+            panic!("poison the snapshot slot");
+        })
+        .join();
+
+        let mut snap = OscSnapshot::empty();
+        snap.frame_id = 7;
+        buf.publish(snap);
+        assert_eq!(buf.latest().frame_id, 7);
+    }
+
+    #[test]
+    fn trigger_queue_survives_poisoned_lock() {
+        let q = Arc::new(TriggerQueue::new());
+        let q2 = Arc::clone(&q);
+        let _ = std::thread::spawn(move || {
+            let _g = q2.pending.lock().unwrap();
+            panic!("poison the trigger queue");
+        })
+        .join();
+
+        q.push(vec![crate::osc_map::TriggerPulse { address: "kick", phase: 0.25, frame_id: 1 }]);
+        let drained = q.drain();
+        assert_eq!(drained.len(), 1);
+        assert!(q.drain().is_empty());
+    }
+
+    #[test]
+    fn trigger_queue_ignores_empty_push() {
+        let q = TriggerQueue::new();
+        q.push(Vec::new());
+        assert!(q.drain().is_empty());
+    }
+
+    #[test]
+    fn double_buffer_returns_latest_published_metrics() {
+        let buf = MetricsDoubleBuffer::new();
+        for sr in [8000.0, 16000.0, 44100.0] {
+            let mut m = Metrics::default();
+            m.sample_rate = sr;
+            buf.publish(m);
+            let mut dst = Metrics::default();
+            buf.copy_latest(&mut dst);
+            assert_eq!(dst.sample_rate, sr);
+        }
+    }
+
+    #[test]
+    fn timeline_deadlines_advance_monotonically() {
+        let t = Timeline::new();
+        let a = t.next_compute_deadline(100.0);
+        let b = t.next_compute_deadline(100.0);
+        assert!(b > a);
+        t.reset();
+        assert!(t.next_compute_deadline(100.0) <= b);
     }
 }
