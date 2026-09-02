@@ -72,6 +72,25 @@ fn resolve(host: &str, port: u16) -> Result<std::net::SocketAddr> {
     addrs.next().context("OSC: no addresses")
 }
 
+/// Сколько compute-кадров импульс ждёт своей доли такта, прежде чем его выбросить.
+/// ~2 с при 120 Гц: фаза двигается только от kick, и если он замолчал, ожидание иначе
+/// вечное — очередь растёт, а при возврате фазы копившееся уходит одной вспышкой.
+const MAX_PENDING_AGE_FRAMES: u64 = 240;
+
+/// Страховка на случай, если кадры почему-то перестали расти.
+const MAX_PENDING_TRIGGERS: usize = 1024;
+
+/// Выбросить импульсы, не дождавшиеся своей фазы. Возвращает число выброшенных.
+fn prune_stale_triggers(pending: &mut Vec<TriggerPulse>, frame_id: u64) -> usize {
+    let before = pending.len();
+    pending.retain(|p| frame_id.saturating_sub(p.frame_id) <= MAX_PENDING_AGE_FRAMES);
+    if pending.len() > MAX_PENDING_TRIGGERS {
+        let excess = pending.len() - MAX_PENDING_TRIGGERS;
+        pending.drain(..excess);
+    }
+    before - pending.len()
+}
+
 fn quantize_phase(phase: f32, grid: f32) -> f32 {
     let g = grid.clamp(0.01, 1.0);
     ((phase / g).round() * g).clamp(0.0, 1.0)
@@ -165,6 +184,7 @@ fn run(shared: Arc<Shared>) {
     let mut last_key = String::new();
     let mut pending_triggers: Vec<TriggerPulse> = Vec::new();
     let mut jitter_ema = 0.0f32;
+    let mut stale_dropped = 0usize;
     let bundle_seq = AtomicU64::new(0);
 
     diag::info("osc", "поток OSC запущен");
@@ -209,6 +229,18 @@ fn run(shared: Arc<Shared>) {
                 pending_triggers.extend(shared.trigger_queue.drain());
                 if osc.phase.immediate_triggers {
                     pending_triggers.extend(snapshot.pulses.iter().cloned());
+                }
+                let dropped = prune_stale_triggers(&mut pending_triggers, snapshot.frame_id);
+                if dropped > 0 {
+                    stale_dropped += dropped;
+                    // Одиночные потери — норма при смене темпа; поток означает, что kick
+                    // не детектится и фаза стоит.
+                    if stale_dropped == 1 || stale_dropped % 100 == 0 {
+                        diag::warn(
+                            "osc",
+                            format!("импульсов не дождалось своей фазы: {stale_dropped}"),
+                        );
+                    }
                 }
 
                 let seq = bundle_seq.fetch_add(1, Ordering::Relaxed) + 1;
@@ -267,4 +299,102 @@ fn run(shared: Arc<Shared>) {
     }
 
     diag::info("osc", "поток OSC остановлен");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::Config;
+    use crate::osc_map::{OscChannel, OscChannelKind};
+
+    fn pulse(address: &'static str, phase: f32, frame_id: u64) -> TriggerPulse {
+        TriggerPulse { address, phase, frame_id }
+    }
+
+    #[test]
+    fn fresh_triggers_are_kept() {
+        let mut pending = vec![pulse("kick", 0.0, 100), pulse("snare", 0.25, 120)];
+        assert_eq!(prune_stale_triggers(&mut pending, 130), 0);
+        assert_eq!(pending.len(), 2);
+    }
+
+    #[test]
+    fn triggers_that_never_met_their_phase_are_dropped() {
+        // Фаза стоит на месте (kick не детектится) — импульс ждал бы вечно.
+        let mut pending = vec![pulse("snare", 0.75, 10), pulse("snare", 0.75, 900)];
+        assert_eq!(prune_stale_triggers(&mut pending, 1000), 1);
+        assert_eq!(pending.len(), 1);
+        assert_eq!(pending[0].frame_id, 900);
+    }
+
+    #[test]
+    fn queue_is_capped_even_if_frame_ids_do_not_advance() {
+        let mut pending: Vec<_> = (0..MAX_PENDING_TRIGGERS + 50)
+            .map(|i| pulse("snare", 0.5, i as u64))
+            .collect();
+        let dropped = prune_stale_triggers(&mut pending, 0);
+        assert_eq!(dropped, 50);
+        assert_eq!(pending.len(), MAX_PENDING_TRIGGERS);
+        // Выбрасываем самые старые, свежие остаются.
+        assert_eq!(pending[0].frame_id, 50);
+    }
+
+    #[test]
+    fn pruning_an_empty_queue_is_a_no_op() {
+        let mut pending: Vec<TriggerPulse> = Vec::new();
+        assert_eq!(prune_stale_triggers(&mut pending, 5000), 0);
+    }
+
+    #[test]
+    fn quantize_snaps_to_the_grid_and_stays_in_range() {
+        assert_eq!(quantize_phase(0.26, 0.25), 0.25);
+        assert_eq!(quantize_phase(0.4, 0.25), 0.5);
+        assert_eq!(quantize_phase(1.4, 0.25), 1.0);
+        assert_eq!(quantize_phase(-0.3, 0.25), 0.0);
+        // Нулевой шаг сетки не должен давать деление на ноль.
+        assert!(quantize_phase(0.5, 0.0).is_finite());
+    }
+
+    fn snapshot_with(beat_phase: f32, frame_id: u64) -> OscSnapshot {
+        OscSnapshot {
+            frame_id,
+            t_mono: 0.0,
+            beat_phase,
+            channels: vec![OscChannel {
+                address: "low".into(),
+                value: 0.5,
+                kind: OscChannelKind::Continuous,
+            }],
+            pulses: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn pulse_waits_until_its_slice_of_the_bar_comes_round() {
+        let cfg = Config::default();
+        let snap = snapshot_with(0.0, 10);
+        let mut pending = vec![pulse("kick", 0.75, 10)];
+
+        let packets = build_bundle_packets(&snap, &mut pending, &cfg.osc, 1, 0.0);
+        // Фаза ещё не подошла: импульс остался в очереди и не отправлен.
+        assert_eq!(pending.len(), 1);
+        assert!(!packets.iter().any(|p| matches!(p, OscPacket::Message(m) if m.addr == "/kick")));
+
+        let snap = snapshot_with(0.75, 11);
+        let packets = build_bundle_packets(&snap, &mut pending, &cfg.osc, 2, 0.0);
+        assert!(pending.is_empty());
+        assert!(packets.iter().any(|p| matches!(p, OscPacket::Message(m) if m.addr == "/kick")));
+    }
+
+    #[test]
+    fn disabled_address_drops_its_pending_pulses() {
+        let mut cfg = Config::default();
+        cfg.osc.set_sends("kick", false);
+        let snap = snapshot_with(0.0, 10);
+        let mut pending = vec![pulse("kick", 0.0, 10)];
+
+        let packets = build_bundle_packets(&snap, &mut pending, &cfg.osc, 1, 0.0);
+        assert!(pending.is_empty());
+        assert!(!packets.iter().any(|p| matches!(p, OscPacket::Message(m) if m.addr == "/kick")));
+    }
 }

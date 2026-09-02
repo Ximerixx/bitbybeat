@@ -46,7 +46,7 @@ pub struct AnalysisFrame {
 pub struct TriggerPulse {
     pub address: &'static str,
     pub phase: f32,
-    #[allow(dead_code)]
+    /// Кадр анализа, в котором impulse возник — по нему OSC отбрасывает залежавшиеся.
     pub frame_id: u64,
 }
 
