@@ -116,7 +116,11 @@ impl LogBus {
 static LOG: std::sync::OnceLock<Arc<LogBus>> = std::sync::OnceLock::new();
 
 pub fn init(bus: Arc<LogBus>) {
-    let _ = LOG.set(bus);
+    if LOG.set(bus).is_err() {
+        // Молчаливый повторный init означал бы, что часть логов уходит в чужую шину,
+        // которую GUI не показывает.
+        eprintln!("[WARN] diag: лог уже инициализирован, повторный вызов init проигнорирован");
+    }
 }
 
 pub fn bus() -> Option<Arc<LogBus>> {
