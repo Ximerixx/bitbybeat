@@ -414,7 +414,17 @@ impl eframe::App for App {
             }
         }
 
-        ctx.request_repaint();
+        // Перерисовка привязана к темпу данных, а не к частоте монитора: на 144-герцовом
+        // экране лишние кадры рисуют те же значения. В фоне окно не читают — там хватает
+        // редкого обновления, чтобы приложение не занимало ядро впустую во время шоу.
+        let visible = ctx.input(|i| {
+            let vp = i.viewport();
+            vp.focused.unwrap_or(true) || !vp.minimized.unwrap_or(false)
+        });
+        let fps = self.cfg_edit.gui_rate_hz.clamp(5.0, 240.0);
+        let period = if visible { 1.0 / fps } else { 1.0 / 4.0 };
+        ctx.request_repaint_after(std::time::Duration::from_secs_f32(period));
+
         let shared = self.shared.clone();
         self.handle_undo_input(ctx);
         self.try_autosave(ctx.input(|i| i.stable_dt));
@@ -918,6 +928,12 @@ impl eframe::App for App {
                     }
                     if ui.add(egui::Slider::new(&mut self.cfg_edit.osc_rate_hz, 1.0..=480.0).text("OSC, Гц"))
                         .on_hover_text("как часто шлём последний снимок в QLC. Не обязана совпадать с анализом")
+                        .changed()
+                    {
+                        self.mark_dirty();
+                    }
+                    if ui.add(egui::Slider::new(&mut self.cfg_edit.gui_rate_hz, 5.0..=120.0).text("окно, Гц"))
+                        .on_hover_text("частота перерисовки окна. На анализ и OSC не влияет; 60 Гц стоит примерно впятеро больше CPU, чем 30")
                         .changed()
                     {
                         self.mark_dirty();

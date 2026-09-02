@@ -12,6 +12,7 @@ fn default_input_gain() -> GainCfg {
 }
 fn default_compute_rate() -> f32 { 120.0 }
 fn default_osc_rate() -> f32 { 60.0 }
+fn default_gui_rate() -> f32 { 30.0 }
 
 /// toggle + parameters (md_plans/10 R1/R3).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -419,6 +420,10 @@ pub struct Config {
     /// Частота отправки OSC, Гц (отдельный таймер, читает последний снимок).
     #[serde(default = "default_osc_rate")]
     pub osc_rate_hz: f32,
+    /// Частота перерисовки GUI, Гц. На анализ и OSC не влияет — только на нагрузку от окна.
+    /// 30 Гц хватает для метров и ламп; 60 стоит примерно впятеро дороже по CPU.
+    #[serde(default = "default_gui_rate")]
+    pub gui_rate_hz: f32,
     #[serde(default)]
     pub spectral: SpectralCfg,
 }
@@ -457,6 +462,7 @@ impl Default for Config {
             osc: OscCfg::default(),
             compute_rate_hz: default_compute_rate(),
             osc_rate_hz: default_osc_rate(),
+            gui_rate_hz: default_gui_rate(),
             spectral: SpectralCfg::default(),
         }
     }
