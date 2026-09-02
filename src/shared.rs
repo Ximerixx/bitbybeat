@@ -8,6 +8,42 @@ use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering}
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::Instant;
 
+/// Захват mutex с восстановлением после паники в другом потоке.
+///
+/// Отравленный lock не должен ронять аудио/OSC/GUI: данные под ним — метрики и снимки,
+/// частично записанное значение не нарушает инварианты и будет перезаписано следующим тиком.
+fn lock_or_recover<'a, T>(m: &'a Mutex<T>, name: &str) -> std::sync::MutexGuard<'a, T> {
+    match m.lock() {
+        Ok(g) => g,
+        Err(poisoned) => {
+            crate::diag::warn("shared", format!("mutex '{name}' poisoned, recovering"));
+            poisoned.into_inner()
+        }
+    }
+}
+
+/// Чтение RwLock с восстановлением после отравления (см. [`lock_or_recover`]).
+fn read_or_recover<'a, T>(r: &'a RwLock<T>, name: &str) -> std::sync::RwLockReadGuard<'a, T> {
+    match r.read() {
+        Ok(g) => g,
+        Err(poisoned) => {
+            crate::diag::warn("shared", format!("rwlock '{name}' poisoned on read, recovering"));
+            poisoned.into_inner()
+        }
+    }
+}
+
+/// Запись в RwLock с восстановлением после отравления (см. [`lock_or_recover`]).
+fn write_or_recover<'a, T>(r: &'a RwLock<T>, name: &str) -> std::sync::RwLockWriteGuard<'a, T> {
+    match r.write() {
+        Ok(g) => g,
+        Err(poisoned) => {
+            crate::diag::warn("shared", format!("rwlock '{name}' poisoned on write, recovering"));
+            poisoned.into_inner()
+        }
+    }
+}
+
 /// Число бинов спектра для GUI (фиксированный массив — без alloc на hot path).
 pub const SPECTRUM_DRAW_BINS: usize = 256;
 
@@ -170,7 +206,7 @@ impl MetricsDoubleBuffer {
     }
 
     pub fn note_engine_error(&self, err: Option<String>) {
-        *self.engine_error.lock().unwrap() = err;
+        *lock_or_recover(&self.engine_error, "engine_error") = err;
     }
 
     fn merge_osc_fields(&self, m: &mut Metrics) {
@@ -180,20 +216,20 @@ impl MetricsDoubleBuffer {
         m.osc_jitter_ms = f32::from_bits(self.osc_jitter_bits.load(Ordering::Relaxed));
         m.osc_send_latency_ms =
             f32::from_bits(self.osc_send_latency_bits.load(Ordering::Relaxed));
-        m.osc_last_error = self.osc_last_error.lock().unwrap().clone();
-        m.error = self.engine_error.lock().unwrap().clone();
+        m.osc_last_error = lock_or_recover(&self.osc_last_error, "osc_last_error").clone();
+        m.error = lock_or_recover(&self.engine_error, "engine_error").clone();
     }
 
     pub fn publish(&self, mut m: Metrics) {
         self.merge_osc_fields(&mut m);
         let idx = self.write_idx.load(Ordering::Relaxed);
-        *self.slots[idx].lock().unwrap() = m;
+        *lock_or_recover(&self.slots[idx], "metrics_slot") = m;
         self.write_idx.store(1 - idx, Ordering::Release);
     }
 
     pub fn copy_latest(&self, dst: &mut Metrics) {
         let idx = 1 - self.write_idx.load(Ordering::Acquire);
-        let src = self.slots[idx].lock().unwrap();
+        let src = lock_or_recover(&self.slots[idx], "metrics_slot");
         src.copy_from(dst);
         self.merge_osc_fields(dst);
     }
@@ -204,7 +240,7 @@ impl MetricsDoubleBuffer {
     }
 
     pub fn record_osc_err(&self, msg: String) {
-        *self.osc_last_error.lock().unwrap() = Some(msg);
+        *lock_or_recover(&self.osc_last_error, "osc_last_error") = Some(msg);
         self.osc_send_err.fetch_add(1, Ordering::Relaxed);
     }
 
@@ -235,11 +271,11 @@ impl ConfigHandle {
 
     /// Для engine/osc: дешёвое чтение без клонирования всего Config.
     pub fn load(&self) -> Arc<Config> {
-        Arc::clone(&*self.inner.read().unwrap())
+        Arc::clone(&read_or_recover(&self.inner, "config_inner"))
     }
 
     pub fn store(&self, config: Config) {
-        *self.inner.write().unwrap() = Arc::new(config);
+        *write_or_recover(&self.inner, "config_inner") = Arc::new(config);
         self.version.fetch_add(1, Ordering::Release);
     }
 
@@ -265,13 +301,13 @@ impl OscDoubleBuffer {
 
     pub fn publish(&self, snapshot: OscSnapshot) {
         let idx = self.write_idx.load(Ordering::Relaxed);
-        *self.slots[idx].lock().unwrap() = Arc::new(snapshot);
+        *lock_or_recover(&self.slots[idx], "osc_slot") = Arc::new(snapshot);
         self.write_idx.store(1 - idx, Ordering::Release);
     }
 
     pub fn latest(&self) -> Arc<OscSnapshot> {
         let idx = 1 - self.write_idx.load(Ordering::Acquire);
-        Arc::clone(&*self.slots[idx].lock().unwrap())
+        Arc::clone(&lock_or_recover(&self.slots[idx], "osc_slot"))
     }
 }
 
@@ -325,11 +361,11 @@ impl TriggerQueue {
         if pulses.is_empty() {
             return;
         }
-        self.pending.lock().unwrap().extend(pulses);
+        lock_or_recover(&self.pending, "trigger_pending").extend(pulses);
     }
 
     pub fn drain(&self) -> Vec<crate::osc_map::TriggerPulse> {
-        std::mem::take(&mut *self.pending.lock().unwrap())
+        std::mem::take(&mut *lock_or_recover(&self.pending, "trigger_pending"))
     }
 }
 
