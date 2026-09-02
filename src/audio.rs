@@ -107,16 +107,29 @@ impl PulseSource {
 /// На Pulse/PipeWire это единственный способ увидеть monitor выходов (cpal/ALSA их не отдаёт),
 /// плюс тут есть человекочитаемые Description вместо `hw:CARD=…`.
 pub fn list_pulse_sources() -> Vec<PulseSource> {
-    let mut out = Vec::new();
-    let Ok(res) = std::process::Command::new("pactl")
+    let res = match std::process::Command::new("pactl")
         .env("LC_ALL", "C")
         .args(["list", "sources"])
         .output()
-    else {
-        return out;
+    {
+        Ok(res) => res,
+        Err(e) => {
+            crate::diag::debug("audio", format!("pactl недоступен: {e}"));
+            return Vec::new();
+        }
     };
-    let text = String::from_utf8_lossy(&res.stdout);
+    if !res.status.success() {
+        let err = String::from_utf8_lossy(&res.stderr);
+        crate::diag::warn("audio", format!("pactl list sources failed: {}", err.trim()));
+        return Vec::new();
+    }
+    parse_pulse_sources(&String::from_utf8_lossy(&res.stdout))
+}
 
+/// Разбор вывода `pactl list sources` (`LC_ALL=C`). Вынесено из [`list_pulse_sources`],
+/// чтобы формат можно было проверять тестами без запуска PulseAudio.
+fn parse_pulse_sources(text: &str) -> Vec<PulseSource> {
+    let mut out = Vec::new();
     let mut name: Option<String> = None;
     let mut description = String::new();
     let mut monitor_of = false;
@@ -274,8 +287,16 @@ impl AudioInput {
         let sample_format = supported.sample_format();
         let config: cpal::StreamConfig = supported.into();
 
-        let err_fn = |e| eprintln!("[audio] ошибка потока: {e}");
+        let err_fn = |e| crate::diag::error("audio", format!("ошибка потока: {e}"));
         let ch = channels as usize;
+        // `chunks(0)` паникует, а число каналов приходит от драйвера — не доверяем ему.
+        if ch == 0 {
+            return Err(anyhow!("устройство {name} сообщило 0 входных каналов"));
+        }
+        // Нулевая частота дискретизации разошлась бы по DSP делением на ноль (NaN в фильтрах).
+        if !(sample_rate > 0.0) {
+            return Err(anyhow!("устройство {name} сообщило некорректную частоту: {sample_rate}"));
+        }
 
         // Валидные выбранные каналы (в пределах числа каналов устройства); пусто = все.
         let picks: Vec<usize> = channels_pick.iter().copied().filter(|&i| i < ch).collect();
@@ -327,5 +348,87 @@ impl AudioInput {
 
         stream.play()?;
         Ok(Self { _backend: Backend::Cpal(stream), sample_rate, channels, device_name: name })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const PACTL_SAMPLE: &str = "\
+Source #0
+\tState: SUSPENDED
+\tName: alsa_output.pci-0000_00_1f.3.analog-stereo.monitor
+\tDescription: Monitor of Built-in Audio Analog Stereo
+\tMonitor of Sink: alsa_output.pci-0000_00_1f.3.analog-stereo
+Source #1
+\tState: RUNNING
+\tName: alsa_input.pci-0000_00_1f.3.analog-stereo
+\tDescription: Built-in Audio Analog Stereo
+\tMonitor of Sink: n/a
+";
+
+    #[test]
+    fn parses_name_description_and_monitor_flag() {
+        let got = parse_pulse_sources(PACTL_SAMPLE);
+        assert_eq!(got.len(), 2);
+        assert_eq!(got[0].name, "alsa_output.pci-0000_00_1f.3.analog-stereo.monitor");
+        assert_eq!(got[0].description, "Monitor of Built-in Audio Analog Stereo");
+        assert!(got[0].is_monitor);
+        assert_eq!(got[1].name, "alsa_input.pci-0000_00_1f.3.analog-stereo");
+        assert!(!got[1].is_monitor);
+    }
+
+    #[test]
+    fn parses_empty_and_garbage_input_without_panicking() {
+        assert!(parse_pulse_sources("").is_empty());
+        assert!(parse_pulse_sources("no colons here\n\n\t\n").is_empty());
+        // Заголовок без Name не должен порождать запись.
+        assert!(parse_pulse_sources("Source #0\n\tState: IDLE\n").is_empty());
+    }
+
+    #[test]
+    fn last_source_is_flushed_without_trailing_header() {
+        let got = parse_pulse_sources("Source #0\n\tName: solo\n");
+        assert_eq!(got.len(), 1);
+        assert_eq!(got[0].name, "solo");
+    }
+
+    #[test]
+    fn label_falls_back_to_name_when_description_is_empty() {
+        let s = PulseSource { name: "raw".into(), description: String::new(), is_monitor: false };
+        assert_eq!(s.label(), "raw");
+        let s = PulseSource { name: "raw".into(), description: "Nice".into(), is_monitor: false };
+        assert_eq!(s.label(), "Nice");
+    }
+
+    #[test]
+    fn mono_pick_averages_all_channels_when_no_picks() {
+        assert_eq!(mono_pick(&[1.0, 3.0], &[]), 2.0);
+    }
+
+    #[test]
+    fn mono_pick_ignores_out_of_range_picks() {
+        // Индексы каналов приходят из конфига и могут пережить смену устройства.
+        assert_eq!(mono_pick(&[1.0, 3.0], &[1, 99]), 3.0);
+        assert_eq!(mono_pick(&[1.0, 3.0], &[99]), 0.0);
+    }
+
+    #[test]
+    fn mono_pick_on_empty_frame_is_zero() {
+        assert_eq!(mono_pick(&[], &[]), 0.0);
+    }
+
+    #[test]
+    fn mono_pick_map_converts_and_averages() {
+        let got = mono_pick_map(&[i16::MAX, 0], &[], |s| s as f32 / i16::MAX as f32);
+        assert!((got - 0.5).abs() < 1e-6);
+    }
+
+    #[test]
+    fn is_monitor_matches_common_names() {
+        assert!(is_monitor("alsa_output.stereo.monitor"));
+        assert!(is_monitor("Loopback Device"));
+        assert!(!is_monitor("Built-in Audio Analog Stereo"));
     }
 }
