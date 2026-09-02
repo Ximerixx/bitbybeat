@@ -591,8 +591,10 @@ impl eframe::App for App {
                 }
             }
 
-            // PulseAudio-источники есть только там, где запущен Pulse/PipeWire.
-            if !self.pulse_sources.is_empty() {
+            // PulseAudio-источники есть только там, где запущен Pulse/PipeWire. Но если пресет
+            // принёс pulse_source с другой машины, комбо нужно показать всё равно — иначе выбор
+            // устройства заблокирован, а снять блокировку нечем.
+            if !self.pulse_sources.is_empty() || cfg.input.pulse_source.is_some() {
                 let cur_pulse = match &cfg.input.pulse_source {
                     Some(n) => self.pulse_sources.iter().find(|s| &s.name == n)
                         .map(|s| s.label().to_string()).unwrap_or_else(|| n.clone()),
