@@ -33,6 +33,19 @@ impl LogLevel {
     }
 }
 
+/// Захват mutex внутри лога с восстановлением после отравления.
+///
+/// Нельзя звать [`warn`] при ошибке — это сам лог, получилась бы рекурсия; пишем прямо в stderr.
+fn lock_or_recover<'a, T>(m: &'a Mutex<T>, name: &str) -> std::sync::MutexGuard<'a, T> {
+    match m.lock() {
+        Ok(g) => g,
+        Err(poisoned) => {
+            eprintln!("[WARN] diag: mutex '{name}' poisoned, recovering");
+            poisoned.into_inner()
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct LogEntry {
     pub at: SystemTime,
@@ -62,10 +75,15 @@ impl LogBus {
     pub fn push(&self, level: LogLevel, target: &str, message: impl Into<String>) {
         let msg = message.into();
         if level == LogLevel::Error && target == "osc" {
-            *self.osc_error_msg.lock().unwrap() = Some(msg.clone());
+            *lock_or_recover(&self.osc_error_msg, "osc_error_msg") = Some(msg.clone());
             self.osc_error_dialog.store(true, Ordering::Release);
         }
-        let mut q = self.entries.lock().unwrap();
+        // Дублируем в stderr только значимое: debug/info на 120 Гц забили бы консоль
+        // и добавили блокирующий I/O в compute-цикл.
+        if level >= LogLevel::Warning {
+            eprintln!("[{}] {}: {}", level.label(), target, msg);
+        }
+        let mut q = lock_or_recover(&self.entries, "entries");
         if q.len() >= self.max_entries {
             q.pop_front();
         }
@@ -77,36 +95,20 @@ impl LogBus {
         });
     }
 
-    pub fn debug(&self, target: &str, message: impl Into<String>) {
-        self.push(LogLevel::Debug, target, message);
-    }
-
-    pub fn info(&self, target: &str, message: impl Into<String>) {
-        self.push(LogLevel::Info, target, message);
-    }
-
-    pub fn warn(&self, target: &str, message: impl Into<String>) {
-        self.push(LogLevel::Warning, target, message);
-    }
-
-    pub fn error(&self, target: &str, message: impl Into<String>) {
-        self.push(LogLevel::Error, target, message);
-    }
-
     pub fn take_osc_error_dialog(&self) -> Option<String> {
         if self.osc_error_dialog.swap(false, Ordering::AcqRel) {
-            self.osc_error_msg.lock().unwrap().take()
+            lock_or_recover(&self.osc_error_msg, "osc_error_msg").take()
         } else {
             None
         }
     }
 
     pub fn snapshot(&self) -> Vec<LogEntry> {
-        self.entries.lock().unwrap().iter().cloned().collect()
+        lock_or_recover(&self.entries, "entries").iter().cloned().collect()
     }
 
     pub fn clear(&self) {
-        self.entries.lock().unwrap().clear();
+        lock_or_recover(&self.entries, "entries").clear();
     }
 }
 
@@ -121,28 +123,29 @@ pub fn bus() -> Option<Arc<LogBus>> {
     LOG.get().cloned()
 }
 
-pub fn debug(target: &str, message: impl Into<String>) {
-    if let Some(b) = bus() {
-        b.debug(target, message);
+/// Записать в глобальную шину; до её инициализации (ранний старт, тесты) — в stderr,
+/// иначе такие сообщения терялись бы полностью.
+fn log(level: LogLevel, target: &str, message: impl Into<String>) {
+    match bus() {
+        Some(b) => b.push(level, target, message),
+        None => eprintln!("[{}] {}: {}", level.label(), target, message.into()),
     }
+}
+
+pub fn debug(target: &str, message: impl Into<String>) {
+    log(LogLevel::Debug, target, message);
 }
 
 pub fn info(target: &str, message: impl Into<String>) {
-    if let Some(b) = bus() {
-        b.info(target, message);
-    }
+    log(LogLevel::Info, target, message);
 }
 
 pub fn warn(target: &str, message: impl Into<String>) {
-    if let Some(b) = bus() {
-        b.warn(target, message);
-    }
+    log(LogLevel::Warning, target, message);
 }
 
 pub fn error(target: &str, message: impl Into<String>) {
-    if let Some(b) = bus() {
-        b.error(target, message);
-    }
+    log(LogLevel::Error, target, message);
 }
 
 pub fn format_time(t: SystemTime) -> String {
@@ -156,5 +159,67 @@ pub fn format_time(t: SystemTime) -> String {
             format!("{h:02}:{m:02}:{s:02}.{ms:03}")
         }
         Err(_) => "??:??:??.???".into(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn osc_error_raises_dialog_once() {
+        let bus = LogBus::new(10);
+        bus.push(LogLevel::Error, "osc", "port busy");
+        assert_eq!(bus.take_osc_error_dialog(), Some("port busy".to_string()));
+        assert_eq!(bus.take_osc_error_dialog(), None);
+    }
+
+    #[test]
+    fn non_osc_error_does_not_raise_dialog() {
+        let bus = LogBus::new(10);
+        bus.push(LogLevel::Error, "audio", "device lost");
+        assert_eq!(bus.take_osc_error_dialog(), None);
+    }
+
+    #[test]
+    fn ring_buffer_drops_oldest_entries() {
+        let bus = LogBus::new(2);
+        bus.push(LogLevel::Info, "t1", "m1");
+        bus.push(LogLevel::Info, "t2", "m2");
+        bus.push(LogLevel::Info, "t3", "m3");
+        let targets: Vec<_> = bus.snapshot().iter().map(|e| e.target.clone()).collect();
+        assert_eq!(targets, vec!["t2", "t3"]);
+    }
+
+    #[test]
+    fn snapshot_keeps_level_and_message() {
+        let bus = LogBus::new(4);
+        bus.push(LogLevel::Warning, "engine", "slow tick");
+        let snap = bus.snapshot();
+        assert_eq!(snap.len(), 1);
+        assert_eq!(snap[0].level, LogLevel::Warning);
+        assert_eq!(snap[0].message, "slow tick");
+    }
+
+    #[test]
+    fn clear_empties_the_ring() {
+        let bus = LogBus::new(4);
+        bus.push(LogLevel::Info, "t", "m");
+        bus.clear();
+        assert!(bus.snapshot().is_empty());
+    }
+
+    #[test]
+    fn push_survives_poisoned_entries_lock() {
+        let bus = LogBus::new(4);
+        let b = Arc::clone(&bus);
+        let _ = std::thread::spawn(move || {
+            let _g = b.entries.lock().unwrap();
+            panic!("poison the log");
+        })
+        .join();
+
+        bus.push(LogLevel::Info, "after", "still works");
+        assert!(bus.snapshot().iter().any(|e| e.target == "after"));
     }
 }
