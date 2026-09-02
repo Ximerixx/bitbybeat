@@ -394,3 +394,139 @@ impl Shared {
         })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn metrics_survive_poisoned_slot() {
+        let buf = Arc::new(MetricsDoubleBuffer::new());
+        let b = Arc::clone(&buf);
+        let _ = std::thread::spawn(move || {
+            let _g = b.slots[0].lock().unwrap();
+            panic!("poison the metrics slot");
+        })
+        .join();
+
+        let mut m = Metrics::default();
+        m.sample_rate = 44100.0;
+        buf.publish(m);
+
+        let mut dst = Metrics::default();
+        buf.copy_latest(&mut dst);
+        assert_eq!(dst.sample_rate, 44100.0);
+    }
+
+    #[test]
+    fn engine_error_survives_poisoned_lock() {
+        let buf = Arc::new(MetricsDoubleBuffer::new());
+        let b = Arc::clone(&buf);
+        let _ = std::thread::spawn(move || {
+            let _g = b.engine_error.lock().unwrap();
+            panic!("poison the engine error slot");
+        })
+        .join();
+
+        buf.note_engine_error(Some("device lost".into()));
+        let mut dst = Metrics::default();
+        buf.copy_latest(&mut dst);
+        assert_eq!(dst.error.as_deref(), Some("device lost"));
+    }
+
+    #[test]
+    fn osc_error_counter_survives_poisoned_lock() {
+        let buf = Arc::new(MetricsDoubleBuffer::new());
+        let b = Arc::clone(&buf);
+        let _ = std::thread::spawn(move || {
+            let _g = b.osc_last_error.lock().unwrap();
+            panic!("poison the osc error slot");
+        })
+        .join();
+
+        buf.record_osc_err("send failed".into());
+        let mut dst = Metrics::default();
+        buf.copy_latest(&mut dst);
+        assert_eq!(dst.osc_last_error.as_deref(), Some("send failed"));
+        assert_eq!(dst.osc_send_err, 1);
+    }
+
+    #[test]
+    fn config_handle_survives_poisoned_rwlock() {
+        let handle = Arc::new(ConfigHandle::new(Config::default()));
+        let h = Arc::clone(&handle);
+        let _ = std::thread::spawn(move || {
+            let _g = h.inner.write().unwrap();
+            panic!("poison the config lock");
+        })
+        .join();
+
+        let mut cfg = Config::default();
+        cfg.osc_rate_hz = 90.0;
+        handle.store(cfg);
+        assert_eq!(handle.load().osc_rate_hz, 90.0);
+        assert_eq!(handle.version(), 1);
+    }
+
+    #[test]
+    fn osc_snapshot_buffer_survives_poisoned_lock() {
+        let buf = Arc::new(OscDoubleBuffer::new());
+        let b = Arc::clone(&buf);
+        let _ = std::thread::spawn(move || {
+            let _g = b.slots[0].lock().unwrap();
+            panic!("poison the snapshot slot");
+        })
+        .join();
+
+        let mut snap = OscSnapshot::empty();
+        snap.frame_id = 7;
+        buf.publish(snap);
+        assert_eq!(buf.latest().frame_id, 7);
+    }
+
+    #[test]
+    fn trigger_queue_survives_poisoned_lock() {
+        let q = Arc::new(TriggerQueue::new());
+        let q2 = Arc::clone(&q);
+        let _ = std::thread::spawn(move || {
+            let _g = q2.pending.lock().unwrap();
+            panic!("poison the trigger queue");
+        })
+        .join();
+
+        q.push(vec![crate::osc_map::TriggerPulse { address: "kick", phase: 0.25, frame_id: 1 }]);
+        let drained = q.drain();
+        assert_eq!(drained.len(), 1);
+        assert!(q.drain().is_empty());
+    }
+
+    #[test]
+    fn trigger_queue_ignores_empty_push() {
+        let q = TriggerQueue::new();
+        q.push(Vec::new());
+        assert!(q.drain().is_empty());
+    }
+
+    #[test]
+    fn double_buffer_returns_latest_published_metrics() {
+        let buf = MetricsDoubleBuffer::new();
+        for sr in [8000.0, 16000.0, 44100.0] {
+            let mut m = Metrics::default();
+            m.sample_rate = sr;
+            buf.publish(m);
+            let mut dst = Metrics::default();
+            buf.copy_latest(&mut dst);
+            assert_eq!(dst.sample_rate, sr);
+        }
+    }
+
+    #[test]
+    fn timeline_deadlines_advance_monotonically() {
+        let t = Timeline::new();
+        let a = t.next_compute_deadline(100.0);
+        let b = t.next_compute_deadline(100.0);
+        assert!(b > a);
+        t.reset();
+        assert!(t.next_compute_deadline(100.0) <= b);
+    }
+}
