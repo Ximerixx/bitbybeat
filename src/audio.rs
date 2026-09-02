@@ -61,20 +61,64 @@ fn dev_channels(d: &cpal::Device) -> u16 {
     d.default_input_config().map(|c| c.channels()).unwrap_or(0)
 }
 
+/// Префикс имени в конфиге для захвата системного вывода («что слышно в колонках»).
+///
+/// Пустой остаток (просто `loopback:`) означает устройство вывода по умолчанию.
+pub const LOOPBACK_PREFIX: &str = "loopback:";
+
+/// Умеет ли ОС отдавать вывод, если открыть устройство вывода как вход.
+///
+/// Windows: WASAPI включает `AUDCLNT_STREAMFLAGS_LOOPBACK` прозрачно (cpal, host/wasapi).
+/// Linux: тем же занимаются monitor-источники PulseAudio ([`list_pulse_sources`]), а
+/// ALSA-устройство вывода как вход не открыть — там этот путь просто не предлагается.
+pub const fn loopback_supported() -> bool {
+    cfg!(target_os = "windows")
+}
+
+/// Ссылается ли имя устройства из конфига на захват системного вывода.
+pub fn is_loopback_name(name: &str) -> bool {
+    name.starts_with(LOOPBACK_PREFIX)
+}
+
+/// Имя устройства без служебного префикса — для показа в GUI.
+pub fn display_device_name(name: &str) -> &str {
+    name.strip_prefix(LOOPBACK_PREFIX).unwrap_or(name)
+}
+
 /// Входное устройство cpal с числом каналов.
 #[derive(Clone, Debug)]
 pub struct DeviceInfo {
+    /// Имя для конфига: у захвата вывода — с префиксом [`LOOPBACK_PREFIX`].
     pub name: String,
     pub channels: u16,
+    /// Это устройство вывода, открываемое как вход (системный звук).
+    pub is_loopback: bool,
 }
 
-/// Список входных устройств. Monitor-источники (в PipeWire/Pulse — `*.monitor`) тоже сюда попадают.
+/// Список того, что можно открыть на запись: входы плюс — где ОС умеет — выходы в режиме
+/// loopback. Monitor-источники (в PipeWire/Pulse — `*.monitor`) тоже попадают в первую группу.
 pub fn list_input_devices() -> Vec<DeviceInfo> {
     let host = cpal::default_host();
     let mut out = Vec::new();
     if let Ok(devs) = host.input_devices() {
         for d in devs {
-            out.push(DeviceInfo { name: dev_name(&d), channels: dev_channels(&d) });
+            out.push(DeviceInfo { name: dev_name(&d), channels: dev_channels(&d), is_loopback: false });
+        }
+    }
+    if loopback_supported() {
+        match host.output_devices() {
+            Ok(devs) => {
+                for d in devs {
+                    // У устройства вывода нет входного конфига — число каналов берём из выходного.
+                    let channels = d.default_output_config().map(|c| c.channels()).unwrap_or(0);
+                    out.push(DeviceInfo {
+                        name: format!("{LOOPBACK_PREFIX}{}", dev_name(&d)),
+                        channels,
+                        is_loopback: true,
+                    });
+                }
+            }
+            Err(e) => crate::diag::warn("audio", format!("список устройств вывода: {e}")),
         }
     }
     out
@@ -163,6 +207,51 @@ fn parse_pulse_sources(text: &str) -> Vec<PulseSource> {
 enum Backend {
     Cpal(cpal::Stream),
     Pulse(PulseCapture),
+}
+
+/// Найти устройство и конфиг, с которым его открывать.
+///
+/// Для loopback берётся устройство *вывода*: cpal на WASAPI сам поднимает
+/// `AUDCLNT_STREAMFLAGS_LOOPBACK`, когда output открывают через `build_input_stream`.
+/// Входного конфига у такого устройства нет, поэтому спрашиваем выходной.
+fn resolve_cpal_device(
+    host: &cpal::Host,
+    device_name: Option<&str>,
+) -> Result<(cpal::Device, cpal::SupportedStreamConfig)> {
+    let Some(name) = device_name else {
+        let device = host
+            .default_input_device()
+            .ok_or_else(|| anyhow!("нет входного устройства по умолчанию"))?;
+        let cfg = device.default_input_config()?;
+        return Ok((device, cfg));
+    };
+
+    if !is_loopback_name(name) {
+        let device = host
+            .input_devices()?
+            .find(|d| dev_name(d) == name)
+            .ok_or_else(|| anyhow!("устройство не найдено: {name}"))?;
+        let cfg = device.default_input_config()?;
+        return Ok((device, cfg));
+    }
+
+    if !loopback_supported() {
+        return Err(anyhow!(
+            "захват системного вывода недоступен на этой ОС — выберите monitor-источник PulseAudio"
+        ));
+    }
+    let target = display_device_name(name);
+    let device = if target.is_empty() {
+        host.default_output_device()
+            .ok_or_else(|| anyhow!("нет устройства вывода по умолчанию"))?
+    } else {
+        host.output_devices()?
+            .find(|d| dev_name(d) == target)
+            .ok_or_else(|| anyhow!("устройство вывода не найдено: {target}"))?
+    };
+    let cfg = device.default_output_config()?;
+    crate::diag::info("audio", format!("захват системного вывода (loopback): {}", dev_name(&device)));
+    Ok((device, cfg))
 }
 
 /// Захват через утилиту `parec` — надёжный путь для Pulse-мониторов в обход cpal/ALSA-плагина
@@ -266,28 +355,32 @@ impl AudioInput {
         })
     }
 
-    /// Захват cpal-устройства (ALSA-железо / default).
+    /// Захват cpal-устройства (микрофон/линейный вход, либо системный вывод в режиме loopback).
     /// `channels_pick` — индексы каналов для анализа; пусто = даунмикс всех в моно.
     fn open_cpal(device_name: Option<&str>, channels_pick: &[usize], mut producer: HeapProd<f32>) -> Result<Self> {
         let host = cpal::default_host();
-
-        let device = match device_name {
-            Some(name) => host
-                .input_devices()?
-                .find(|d| dev_name(d) == name)
-                .ok_or_else(|| anyhow!("устройство не найдено: {name}"))?,
-            None => host
-                .default_input_device()
-                .ok_or_else(|| anyhow!("нет входного устройства по умолчанию"))?,
-        };
-        let name = dev_name(&device);
-        let supported = device.default_input_config()?;
+        let (device, supported) = resolve_cpal_device(&host, device_name)?;
+        let name = device_name
+            .filter(|n| is_loopback_name(n))
+            .map(|n| n.to_string())
+            .unwrap_or_else(|| dev_name(&device));
         let sample_rate = supported.sample_rate() as f32; // 0.18: SampleRate = u32
         let channels = supported.channels();
         let sample_format = supported.sample_format();
         let config: cpal::StreamConfig = supported.into();
 
-        let err_fn = |e| crate::diag::error("audio", format!("ошибка потока: {e}"));
+        // Xrun (пропуск буфера) — рядовое событие, особенно у loopback на простаивающем
+        // выходе; логируем редко, чтобы не топить в нём настоящие отказы устройства.
+        let xruns = std::sync::atomic::AtomicU64::new(0);
+        let err_fn = move |e: cpal::Error| match e.kind() {
+            cpal::ErrorKind::Xrun => {
+                let n = xruns.fetch_add(1, Ordering::Relaxed) + 1;
+                if n == 1 || n % 100 == 0 {
+                    crate::diag::warn("audio", format!("пропуск буфера (xrun), всего {n}"));
+                }
+            }
+            _ => crate::diag::error("audio", format!("ошибка потока: {e}")),
+        };
         let ch = channels as usize;
         // `chunks(0)` паникует, а число каналов приходит от драйвера — не доверяем ему.
         if ch == 0 {
@@ -423,6 +516,24 @@ Source #1
     fn mono_pick_map_converts_and_averages() {
         let got = mono_pick_map(&[i16::MAX, 0], &[], |s| s as f32 / i16::MAX as f32);
         assert!((got - 0.5).abs() < 1e-6);
+    }
+
+    #[test]
+    fn loopback_names_round_trip_through_the_prefix() {
+        let stored = format!("{LOOPBACK_PREFIX}Динамики (Realtek)");
+        assert!(is_loopback_name(&stored));
+        assert_eq!(display_device_name(&stored), "Динамики (Realtek)");
+        // Пустой остаток = устройство вывода по умолчанию.
+        assert!(is_loopback_name(LOOPBACK_PREFIX));
+        assert_eq!(display_device_name(LOOPBACK_PREFIX), "");
+    }
+
+    #[test]
+    fn plain_device_names_are_left_alone() {
+        assert!(!is_loopback_name("Mic in at rear panel"));
+        assert_eq!(display_device_name("Mic in at rear panel"), "Mic in at rear panel");
+        // Устройство, у которого «loopback» просто внутри имени, не префикс.
+        assert!(!is_loopback_name("Cable Loopback Input"));
     }
 
     #[test]

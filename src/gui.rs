@@ -568,47 +568,79 @@ impl eframe::App for App {
                     ui.selectable_value(&mut cfg.input.source, Source::File, "Файл (опц.)");
                 });
 
-            let pm = ui.checkbox(&mut cfg.input.prefer_monitor, "предпочитать monitor-источники")
-                .on_hover_text("при включении автоматически выбирает первый monitor выхода (системный звук)");
+            let pm = ui.checkbox(&mut cfg.input.prefer_monitor, "предпочитать системный звук")
+                .on_hover_text("автоматически выбрать то, что играет в колонках: monitor-источник (Linux) или loopback вывода (Windows)");
             if pm.changed() && cfg.input.prefer_monitor {
                 if let Some(mon) = self.pulse_sources.iter().find(|s| s.is_monitor) {
                     cfg.input.pulse_source = Some(mon.name.clone());
                     panel_dirty = true;
+                } else if audio::loopback_supported() {
+                    cfg.input.pulse_source = None;
+                    cfg.input.device = Some(audio::LOOPBACK_PREFIX.to_string());
+                    panel_dirty = true;
                 }
             }
 
-            // PulseAudio-источники
-            let cur_pulse = match &cfg.input.pulse_source {
-                Some(n) => self.pulse_sources.iter().find(|s| &s.name == n)
-                    .map(|s| s.label().to_string()).unwrap_or_else(|| n.clone()),
-                None => "- нет (ALSA-устройство) -".into(),
-            };
-            egui::ComboBox::from_label("pulse source (monitor)")
-                .selected_text(cur_pulse)
-                .width(280.0)
-                .show_ui(ui, |ui| {
-                    ui.selectable_value(&mut cfg.input.pulse_source, None, "- нет (ALSA-устройство) -");
-                    for s in &self.pulse_sources {
-                        let tag = if s.is_monitor { format!("[mon] {}", s.label()) } else { s.label().to_string() };
-                        ui.selectable_value(&mut cfg.input.pulse_source, Some(s.name.clone()), tag);
-                    }
-                })
-                .response
-                .on_hover_text("захват системного звука: выберите [mon] monitor вашего выхода (через parec, без паник cpal)");
+            // PulseAudio-источники есть только там, где запущен Pulse/PipeWire.
+            if !self.pulse_sources.is_empty() {
+                let cur_pulse = match &cfg.input.pulse_source {
+                    Some(n) => self.pulse_sources.iter().find(|s| &s.name == n)
+                        .map(|s| s.label().to_string()).unwrap_or_else(|| n.clone()),
+                    None => "- нет (устройство) -".into(),
+                };
+                egui::ComboBox::from_label("pulse source (monitor)")
+                    .selected_text(cur_pulse)
+                    .width(280.0)
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(&mut cfg.input.pulse_source, None, "- нет (устройство) -");
+                        for s in &self.pulse_sources {
+                            let tag = if s.is_monitor { format!("[mon] {}", s.label()) } else { s.label().to_string() };
+                            ui.selectable_value(&mut cfg.input.pulse_source, Some(s.name.clone()), tag);
+                        }
+                    })
+                    .response
+                    .on_hover_text("захват системного звука: выберите [mon] monitor вашего выхода (через parec, без паник cpal)");
+            }
 
-            let cur = cfg.input.device.clone().unwrap_or_else(|| "- default -".into());
+            let cur = match &cfg.input.device {
+                Some(n) if audio::is_loopback_name(n) => {
+                    let base = audio::display_device_name(n);
+                    if base.is_empty() {
+                        "[loopback] вывод по умолчанию".to_string()
+                    } else {
+                        format!("[loopback] {base}")
+                    }
+                }
+                Some(n) => n.clone(),
+                None => "- default -".into(),
+            };
             ui.add_enabled_ui(cfg.input.pulse_source.is_none(), |ui| {
-                egui::ComboBox::from_label("ALSA device")
+                egui::ComboBox::from_label("устройство")
                     .selected_text(cur)
                     .width(280.0)
                     .show_ui(ui, |ui| {
                         ui.selectable_value(&mut cfg.input.device, None, "- default -");
+                        if audio::loopback_supported() {
+                            ui.selectable_value(
+                                &mut cfg.input.device,
+                                Some(audio::LOOPBACK_PREFIX.to_string()),
+                                "[loopback] вывод по умолчанию",
+                            );
+                        }
                         for d in &self.devices {
-                            let base = format!("{} [{}ch]", d.name, d.channels);
-                            let tag = if audio::is_monitor(&d.name) { format!("[mon] {base}") } else { base };
+                            let base = format!("{} [{}ch]", audio::display_device_name(&d.name), d.channels);
+                            let tag = if d.is_loopback {
+                                format!("[loopback] {base}")
+                            } else if audio::is_monitor(&d.name) {
+                                format!("[mon] {base}")
+                            } else {
+                                base
+                            };
                             ui.selectable_value(&mut cfg.input.device, Some(d.name.clone()), tag);
                         }
-                    });
+                    })
+                    .response
+                    .on_hover_text("[loopback] — то, что играет в колонках (системный вывод)");
             });
 
             // Выбор каналов для многоканальных устройств (микшер/интерфейс).
